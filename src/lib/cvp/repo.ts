@@ -142,10 +142,18 @@ export async function deleteBlock(id: string) {
 
 export async function reorderBlocks(ids: string[]) {
   const db = getDb();
-  await db.transaction("rw", db.workBlocks, async () => {
+  const oldRows = await db.workBlocks.bulkGet(ids);
+  await db.transaction("rw", db.workBlocks, db.auditLogs, async () => {
     for (let i = 0; i < ids.length; i++) {
       await db.workBlocks.update(ids[i]!, { order: i + 1 });
     }
+    await writeAudit({
+      action: "UPDATE",
+      module: "workBlocks",
+      recordId: "order",
+      oldValue: oldRows.filter(Boolean).map((r) => ({ id: r!.id, order: r!.order })),
+      newValue: ids.map((id, i) => ({ id, order: i + 1 })),
+    });
   });
 }
 
@@ -269,8 +277,10 @@ export async function updateTask(id: string, patch: Partial<Task>) {
   const old = await db.tasks.get(id);
   if (!old) throw new Error("Không tìm thấy công việc");
   const next = { ...old, ...patch, id, updatedAt: Date.now() };
-  await db.tasks.put(next);
-  await writeAudit({ action: "UPDATE", module: "tasks", recordId: id, oldValue: old, newValue: next });
+  await db.transaction("rw", db.tasks, db.auditLogs, async () => {
+    await db.tasks.put(next);
+    await writeAudit({ action: "UPDATE", module: "tasks", recordId: id, oldValue: old, newValue: next });
+  });
   return next;
 }
 
@@ -309,7 +319,18 @@ export async function refreshOverdueTasks() {
   const open = await db.tasks.filter((t) => t.status !== "COMPLETED").toArray();
   for (const t of open) {
     const next = refreshTaskStatus(t, now);
-    if (next !== t.status) await db.tasks.update(t.id, { status: next, updatedAt: now });
+    if (next !== t.status) {
+      await db.transaction("rw", db.tasks, db.auditLogs, async () => {
+        await db.tasks.update(t.id, { status: next, updatedAt: now });
+        await writeAudit({
+          action: "UPDATE",
+          module: "tasks",
+          recordId: t.id,
+          oldValue: { status: t.status },
+          newValue: { status: next, automatic: true },
+        });
+      });
+    }
   }
 }
 
@@ -317,16 +338,20 @@ export async function toggleChecklistItem(id: string, done: boolean) {
   const db = getDb();
   const c = ctx();
   const now = Date.now();
-  await db.checklistItems.update(id, {
-    done,
-    completedAt: done ? now : null,
-    completedBy: done ? c.userId : null,
-  });
-  await writeAudit({
-    action: done ? "COMPLETE" : "UPDATE",
-    module: "checklistItems",
-    recordId: id,
-    newValue: { done },
+  const old = await db.checklistItems.get(id);
+  await db.transaction("rw", db.checklistItems, db.auditLogs, async () => {
+    await db.checklistItems.update(id, {
+      done,
+      completedAt: done ? now : null,
+      completedBy: done ? c.userId : null,
+    });
+    await writeAudit({
+      action: done ? "COMPLETE" : "UPDATE",
+      module: "checklistItems",
+      recordId: id,
+      oldValue: old,
+      newValue: { ...(old ?? {}), done },
+    });
   });
 }
 
@@ -346,7 +371,10 @@ export async function addChecklistItem(checklistId: string, label: string, extra
     note: "",
     order: siblings + 1,
   };
-  await db.checklistItems.add(row);
+  await db.transaction("rw", db.checklistItems, db.auditLogs, async () => {
+    await db.checklistItems.add(row);
+    await writeAudit({ action: "CREATE", module: "checklistItems", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
@@ -380,9 +408,10 @@ export async function deletePhoto(id: string) {
   const db = getDb();
   const photo = await db.photos.get(id);
   if (!photo) return;
-  await db.transaction("rw", db.photos, db.blobs, async () => {
+  await db.transaction("rw", db.photos, db.blobs, db.auditLogs, async () => {
     await db.photos.delete(id);
     await db.blobs.delete(photo.blobId);
+    await writeAudit({ action: "DELETE", module: "photos", recordId: id, oldValue: photo });
   });
 }
 

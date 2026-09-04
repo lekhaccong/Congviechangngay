@@ -1,0 +1,1 @@
+var e={ADMIN:[`manage_people`,`manage_tasks`,`manage_goods`,`manage_ot`,`execute`,`attendance`,`backup`,`settings`,`view`],LEADER:[`manage_people`,`manage_tasks`,`manage_goods`,`manage_ot`,`execute`,`attendance`,`view`],USER:[`execute`,`attendance`,`view`],VIEWER:[`view`]};function t(t,n){return t?e[t]?.includes(n)??!1:!1}export{t};

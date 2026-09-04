@@ -1,3 +1,4 @@
+import { startNativeReminders } from "./native-notifications";
 import { canUseDb, getDb } from "./db";
 import { clearSampleData, seedCatalog, seedSampleData } from "./seed";
 import { persistSetting, refreshOverdueTasks } from "./repo";
@@ -49,10 +50,11 @@ export async function initApp(): Promise<void> {
   useAppStore.getState().setReady(true);
   if (!started) {
     started = true;
+    startNativeReminders();
     window.setInterval(() => {
-      void tickReminders();
+      void tickReminders().catch(console.error);
     }, 60_000);
-    void tickReminders();
+    void tickReminders().catch(console.error);
   }
 }
 

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Be Vietnam Pro", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: "Be Vietnam Pro", "Noto Sans", Roboto, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Roboto Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --color-bg: #0c0d0f;
   --color-background: #0c0d0f;

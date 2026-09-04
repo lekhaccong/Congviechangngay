@@ -1,0 +1,1 @@
+import{o as e}from"./useStore-CiFc1kxM.js";var t=e();function n({active:e,onClick:n,children:r}){return(0,t.jsx)(`button`,{type:`button`,onClick:n,className:`h-10 shrink-0 rounded-full px-3 text-sm ${e?`bg-primary text-primary-foreground`:`bg-surface-2 text-fg`}`,children:r})}export{n as t};

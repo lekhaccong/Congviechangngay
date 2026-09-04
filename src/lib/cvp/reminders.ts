@@ -1,3 +1,5 @@
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { isNativeNotifications, showNativeNotification, syncNativeReminders, testNativeNotification } from "./native-notifications";
 import { getDb, canUseDb } from "./db";
 import { nid } from "./ids";
 import { useAppStore } from "./store";
@@ -32,7 +34,8 @@ export async function tickReminders(): Promise<void> {
       read: false,
       createdAt: now,
     });
-    notifyBrowser(overdue ? "Công việc quá hạn" : "Sắp đến hạn", t.name);
+    // Android already owns future reminders; only report overdue tasks here.
+    if (!isNativeNotifications() || overdue) await notifyBrowser(overdue ? "Công việc quá hạn" : "Sắp đến hạn", t.name);
   }
 
   const missingData = await db.dataItems
@@ -53,6 +56,7 @@ export async function tickReminders(): Promise<void> {
       read: false,
       createdAt: now,
     });
+    await notifyBrowser(d.status === "MISSING" ? "DATA thiếu" : "DATA chưa hoàn thành", `${d.productCode} · ${d.invoice}`);
   }
 
   const openLots = await db.lots.filter((l) => l.status !== "CLOSED").toArray();
@@ -71,10 +75,15 @@ export async function tickReminders(): Promise<void> {
       read: false,
       createdAt: now,
     });
+    await notifyBrowser("Lot chưa chốt", lot.lotCode);
   }
 }
 
-function notifyBrowser(title: string, body: string) {
+async function notifyBrowser(title: string, body: string) {
+  if (isNativeNotifications()) {
+    await showNativeNotification(title, body).catch(() => {});
+    return;
+  }
   if (typeof Notification === "undefined") return;
   if (Notification.permission === "granted") {
     try {
@@ -86,8 +95,20 @@ function notifyBrowser(title: string, body: string) {
 }
 
 export async function requestNotifyPermission() {
+  if (isNativeNotifications()) {
+    const permission = await LocalNotifications.requestPermissions();
+    if (permission.display !== "granted") return false;
+    await syncNativeReminders();
+    return true;
+  }
   if (typeof Notification === "undefined") return false;
   if (Notification.permission === "granted") return true;
   const res = await Notification.requestPermission();
   return res === "granted";
+}
+
+export async function sendTestNotification() {
+  if (!(await requestNotifyPermission())) throw new Error("Chưa được cấp quyền thông báo. Hãy bật trong Cài đặt điện thoại → Ứng dụng → CongViecPro → Thông báo.");
+  if (isNativeNotifications()) await testNativeNotification();
+  else await notifyBrowser("CongViecPro", "Thông báo thử đã hoạt động.");
 }

@@ -9,8 +9,8 @@ import {
   roundToStep,
   shiftDateFor,
   shiftWindow,
-  type Shift,
 } from "./time.ts";
+import type { Shift } from "./types.ts";
 
 const shifts: Shift[] = [
   { id: "1", name: "Ca 1", startTime: "06:00", endTime: "14:00", crossesMidnight: false, order: 1 },

@@ -74,6 +74,33 @@ export class CvpDB extends Dexie {
       settings: "key",
       handovers: "id, date, shiftId",
     });
+
+    // Migration checkpoint. Keep this explicit so future schema changes can
+    // be added as version(3), version(4), ... without rewriting old data.
+    this.version(2).stores({
+      employees: "id, code, groupId, shiftId, status, name",
+      groups: "id, order",
+      shifts: "id, order",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]",
+      workBlocks: "id, order",
+      tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId",
+      checklistItems: "id, checklistId, taskId, threeSId, done",
+      photos: "id, ownerModule, ownerId, createdAt",
+      blobs: "id",
+      auditLogs: "id, timestamp, module, recordId, date, shiftId, action",
+      overtimes: "id, employeeId, date, shiftId",
+      amhs: "id, employeeId, date, shiftId, status",
+      dataItems: "id, productCode, invoice, lot, status",
+      goodsItems: "id, invoice, productCode, lot, status, exportDate",
+      lots: "id, lotCode, invoice, productCode, status, date",
+      lotClosures: "id, lotId, closedAt",
+      threeS: "id, date, shiftId",
+      abnormalities: "id, status, detectedAt, linkedModule, linkedId",
+      notifications: "id, dueAt, read",
+      settings: "key",
+      handovers: "id, date, shiftId",
+    });
   }
 }
 

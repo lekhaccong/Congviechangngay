@@ -1,0 +1,1 @@
+import{d as e,n as t,s as n}from"./useStore-CiFc1kxM.js";var r=e(n(),1);function i(e){let n=t();return r.useCallback(t=>n.navigate({...t,from:t.from??e?.from}),[e?.from,n])}export{i as t};

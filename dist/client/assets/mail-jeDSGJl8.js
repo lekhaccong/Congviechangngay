@@ -1,0 +1,5 @@
+function e(e,t){let n=`mailto:?subject=${encodeURIComponent(e)}&body=${encodeURIComponent(t)}`;window.location.href=n}function t(t){e(`[CHỐT LOT] ${t.lotCode}`,[`Lot: ${t.lotCode}`,`Invoice: ${t.invoice}`,`Mã SP: ${t.productCode}`,`Số lượng: ${t.quantity}`,`Người thực hiện: ${t.closer}`,`Thời gian: ${t.time}`,`Trạng thái: ${t.status}`,t.note?`Ghi chú: ${t.note}`:``].filter(Boolean).join(`
+`))}function n(t){e(`[BẤT THƯỜNG] ${t.type}`,[`Loại: ${t.type}`,`Mức độ: ${t.severity}`,`Mô tả: ${t.description}`,`Người phát hiện: ${t.detector}`,`Thời gian: ${t.time}`].join(`
+`))}function r(t){e(`[THIẾU DATA] ${t.productCode}`,[`Mã SP: ${t.productCode}`,`Invoice: ${t.invoice}`,`Ghi chú: ${t.note}`].join(`
+`))}function i(t){e(`[HÀNG THIẾU] ${t.productCode}`,[`Mã SP: ${t.productCode}`,`Invoice: ${t.invoice}`,`Lot: ${t.lot}`,`Ghi chú: ${t.note}`].join(`
+`))}export{e as a,i,t as n,r,n as t};
