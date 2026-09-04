@@ -22,6 +22,11 @@ export function computeOtRate(date: string, startTime: string, endTime: string, 
     if (clock >= 22 * 60 || clock < 6 * 60) nightMinutes++;
     else dayMinutes++;
   }
+  // Nghiệp vụ nhà máy: người đang ở ca đêm D phát sinh OT ngày thường
+  // luôn hưởng 215%, không phụ thuộc phần OT rơi sau 06:00.
+  if (shiftCode === "D" && !sunday) {
+    return { ratePercent: 215, rateLabel: "Ca đêm ngày thường 215%", dayMinutes, nightMinutes };
+  }
   const dayRate = sunday || personalDayOff ? 200 : 150;
   const nightRate = sunday || personalDayOff ? 280 : 215;
   const total = dayMinutes + nightMinutes;

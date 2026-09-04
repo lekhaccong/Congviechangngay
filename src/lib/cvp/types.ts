@@ -1,5 +1,5 @@
 export const APP_NAME = "CongViecPro";
-export const APP_VERSION = "1.3.0";
+export const APP_VERSION = "1.3.1";
 export const DB_VERSION = 4;
 export const BACKUP_VERSION = 1;
 
