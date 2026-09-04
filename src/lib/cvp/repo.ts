@@ -93,6 +93,10 @@ export async function deleteEmployee(id: string) {
   });
 }
 
+export async function deleteEmployees(ids: string[]) {
+  for (const id of ids) await deleteEmployee(id);
+}
+
 export async function createGroup(name: string) {
   const db = getDb();
   const max = (await db.groups.toArray()).reduce((m, g) => Math.max(m, g.order), 0);
@@ -504,6 +508,10 @@ export async function deleteDataItem(id: string) {
   await writeAudit({ action: "DELETE", module: "dataItems", recordId: id, oldValue: old });
 }
 
+export async function deleteDataItems(ids: string[]) {
+  for (const id of ids) await deleteDataItem(id);
+}
+
 export async function upsertGoods(data: Omit<GoodsItem, "id" | "createdAt" | "updatedAt"> & { id?: string }) {
   const db = getDb();
   const now = Date.now();
@@ -540,6 +548,27 @@ export async function upsertLot(data: Omit<Lot, "id" | "createdAt"> & { id?: str
   await db.lots.add(row);
   await writeAudit({ action: "CREATE", module: "lots", recordId: row.id, newValue: row });
   return row;
+}
+
+export async function deleteLot(id: string) {
+  const db = getDb();
+  const old = await db.lots.get(id);
+  if (!old) return;
+  const closures = await db.lotClosures.where("lotId").equals(id).toArray();
+  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, async () => {
+    await db.lotClosures.where("lotId").equals(id).delete();
+    await db.lots.delete(id);
+    await writeAudit({
+      action: "DELETE",
+      module: "lots",
+      recordId: id,
+      oldValue: { lot: old, closures },
+    });
+  });
+}
+
+export async function deleteLots(ids: string[]) {
+  for (const id of ids) await deleteLot(id);
 }
 
 export async function closeLot(lotId: string, note: string, photoId: string | null) {

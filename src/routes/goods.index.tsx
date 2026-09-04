@@ -10,7 +10,7 @@ import { Field, Input, Textarea } from "@/components/ui/input";
 import { useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { useAppStore } from "@/lib/cvp/store";
-import { upsertDataItem, upsertGoods, upsertLot } from "@/lib/cvp/repo";
+import { deleteDataItems, deleteLots, upsertDataItem, upsertGoods, upsertLot } from "@/lib/cvp/repo";
 import {
   DATA_STATUS_LABEL,
   GOODS_STATUS_LABEL,
@@ -31,6 +31,8 @@ function GoodsPage() {
   const [status, setStatus] = useState("all");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const data = useRows(() => getDb().dataItems.reverse().sortBy("createdAt"));
   const goods = useRows(() => getDb().goodsItems.reverse().sortBy("createdAt"));
   const lots = useRows(() => getDb().lots.reverse().sortBy("createdAt"));
@@ -47,6 +49,7 @@ function GoodsPage() {
         action={
           can(role, "manage_goods") ? (
             <div className="flex gap-2">
+              {tab !== "export" ? <Button size="sm" variant="ghost" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? "Hủy" : "Chọn"}</Button> : null}
               {tab !== "lot" ? <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>{tab === "data" ? "Nhập DATA" : "Nhập KH xuất"}</Button> : null}
               <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
             </div>
@@ -55,11 +58,41 @@ function GoodsPage() {
       />
       <div className="mb-3 grid grid-cols-3 gap-2">
         {(["data", "export", "lot"] as const).map((t) => (
-          <Button key={t} variant={tab === t ? "default" : "secondary"} onClick={() => { setTab(t); setStatus("all"); }}>
+          <Button key={t} variant={tab === t ? "default" : "secondary"} onClick={() => { setTab(t); setStatus("all"); setSelecting(false); setSelected(new Set()); }}>
             {t === "data" ? "DATA" : t === "export" ? "Hàng xuất" : "Lot"}
           </Button>
         ))}
       </div>
+      {selecting && tab !== "export" ? (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
+          <button
+            type="button"
+            className="text-sm text-muted"
+            onClick={() => {
+              const visible = tab === "data" ? dataShown : lotsShown;
+              setSelected(selected.size === visible.length ? new Set() : new Set(visible.map((item) => item.id)));
+            }}
+          >
+            {selected.size === (tab === "data" ? dataShown.length : lotsShown.length) && selected.size ? "Bỏ chọn tất cả" : "Chọn tất cả"} · {selected.size} mục
+          </button>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={!selected.size}
+            onClick={async () => {
+              const label = tab === "data" ? "DATA" : "Lot (kể cả Lot đã chốt)";
+              if (!confirm(`Xóa ${selected.size} ${label} đã chọn?`)) return;
+              if (tab === "data") await deleteDataItems([...selected]);
+              else await deleteLots([...selected]);
+              toast.success(`Đã xóa ${selected.size} mục`);
+              setSelected(new Set());
+              setSelecting(false);
+            }}
+          >
+            Xóa đã chọn
+          </Button>
+        </div>
+      ) : null}
       <div className="mb-3 flex gap-2 overflow-x-auto">
         <FilterChip active={status === "all"} onClick={() => setStatus("all")}>
           Tất cả
@@ -89,8 +122,9 @@ function GoodsPage() {
         ) : (
           <ul className="space-y-2">
             {dataShown.map((d) => (
-              <li key={d.id}>
-                <Link to="/goods/data/$id" params={{ id: d.id }} className="flex items-center justify-between rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+              <li key={d.id} className="flex items-center rounded-xl bg-surface shadow-[var(--shadow-border)]">
+                {selecting ? <input type="checkbox" className="ml-4 size-5 accent-primary" checked={selected.has(d.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; })} aria-label={`Chọn DATA ${d.productCode}`} /> : null}
+                <Link to="/goods/data/$id" params={{ id: d.id }} className="flex flex-1 items-center justify-between p-4" onClick={(event) => { if (!selecting) return; event.preventDefault(); setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; }); }}>
                   <div>
                     <p className="font-medium">{d.productCode}</p>
                     <p className="font-mono text-xs text-muted">{d.invoice} · {d.lot} · SL {d.quantity}</p>
@@ -129,8 +163,9 @@ function GoodsPage() {
         ) : (
           <ul className="space-y-2">
             {lotsShown.map((d) => (
-              <li key={d.id}>
-                <Link to="/goods/lot/$id" params={{ id: d.id }} className="flex items-center justify-between rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+              <li key={d.id} className="flex items-center rounded-xl bg-surface shadow-[var(--shadow-border)]">
+                {selecting ? <input type="checkbox" className="ml-4 size-5 accent-primary" checked={selected.has(d.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; })} aria-label={`Chọn Lot ${d.lotCode}`} /> : null}
+                <Link to="/goods/lot/$id" params={{ id: d.id }} className="flex flex-1 items-center justify-between p-4" onClick={(event) => { if (!selecting) return; event.preventDefault(); setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; }); }}>
                   <div>
                     <p className="font-medium">{d.lotCode}</p>
                     <p className="font-mono text-xs text-muted">{d.invoice} · {d.productCode} · SL {d.quantity}</p>

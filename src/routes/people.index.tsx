@@ -13,7 +13,7 @@ import { useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { can } from "@/lib/cvp/permissions";
 import { useAppStore } from "@/lib/cvp/store";
-import { createEmployee, createGroup, deleteGroup, renameGroup } from "@/lib/cvp/repo";
+import { createEmployee, createGroup, deleteEmployees, deleteGroup, renameGroup } from "@/lib/cvp/repo";
 import { ROLE_LABEL } from "@/lib/cvp/types";
 
 export const Route = createFileRoute("/people/")({ component: PeoplePage });
@@ -26,6 +26,8 @@ function PeoplePage() {
   const [groupFilter, setGroupFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupOpen, setGroupOpen] = useState(false);
   const [newGroup, setNewGroup] = useState("");
   const filtered = people.filter((p) => groupFilter === "all" || p.groupId === groupFilter);
@@ -38,6 +40,7 @@ function PeoplePage() {
         action={
           can(role, "manage_people") ? (
             <div className="flex gap-2">
+              <Button size="sm" variant="ghost" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? "Hủy" : "Chọn"}</Button>
               <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>Nhập Excel</Button>
               <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
             </div>
@@ -59,6 +62,31 @@ function PeoplePage() {
           </Button>
         ) : null}
       </div>
+      {selecting ? (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
+          <button
+            type="button"
+            className="text-sm text-muted"
+            onClick={() => setSelected(selected.size === filtered.length ? new Set() : new Set(filtered.map((item) => item.id)))}
+          >
+            {selected.size === filtered.length && filtered.length ? "Bỏ chọn tất cả" : "Chọn tất cả"} · {selected.size} người
+          </button>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={!selected.size}
+            onClick={async () => {
+              if (!confirm(`Xóa ${selected.size} nhân sự đã chọn?`)) return;
+              await deleteEmployees([...selected]);
+              toast.success(`Đã xóa ${selected.size} nhân sự`);
+              setSelected(new Set());
+              setSelecting(false);
+            }}
+          >
+            Xóa đã chọn
+          </Button>
+        </div>
+      ) : null}
       {filtered.length === 0 ? (
         <EmptyState title="Chưa có nhân sự" hint="Thêm người để chấm công và giao việc." />
       ) : (
@@ -67,8 +95,17 @@ function PeoplePage() {
             const g = groups.find((x) => x.id === p.groupId);
             const s = shifts.find((x) => x.id === p.shiftId);
             return (
-              <li key={p.id}>
-                <Link to="/people/$id" params={{ id: p.id }} className="flex min-h-16 items-center justify-between gap-3 px-4 py-3">
+              <li key={p.id} className="flex items-center">
+                {selecting ? (
+                  <input
+                    type="checkbox"
+                    className="ml-4 size-5 accent-primary"
+                    checked={selected.has(p.id)}
+                    onChange={() => setSelected((current) => { const next = new Set(current); next.has(p.id) ? next.delete(p.id) : next.add(p.id); return next; })}
+                    aria-label={`Chọn ${p.name}`}
+                  />
+                ) : null}
+                <Link to="/people/$id" params={{ id: p.id }} className="flex min-h-16 flex-1 items-center justify-between gap-3 px-4 py-3" onClick={(event) => { if (!selecting) return; event.preventDefault(); setSelected((current) => { const next = new Set(current); next.has(p.id) ? next.delete(p.id) : next.add(p.id); return next; }); }}>
                   <div className="min-w-0">
                     <p className="font-medium">{p.name}</p>
                     <p className="font-mono text-xs text-muted">

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/cvp/page-header";
 import { LotBadge } from "@/components/cvp/status-badge";
@@ -8,17 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Field, NativeSelect, Textarea } from "@/components/ui/input";
 import { useRow, useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
-import { closeLot, upsertLot } from "@/lib/cvp/repo";
+import { closeLot, deleteLot, upsertLot } from "@/lib/cvp/repo";
 import { LOT_STATUS_LABEL, type LotStatus } from "@/lib/cvp/types";
 import { lotCloseMail } from "@/lib/cvp/mail";
 import { formatDateTime } from "@/lib/cvp/time";
 import { useAppStore } from "@/lib/cvp/store";
+import { can } from "@/lib/cvp/permissions";
 
 export const Route = createFileRoute("/goods/lot/$id")({ component: LotDetail });
 
 function LotDetail() {
   const { id } = Route.useParams();
+  const nav = useNavigate();
   const userName = useAppStore((s) => s.currentUserName);
+  const role = useAppStore((s) => s.role);
   const lot = useRow(() => getDb().lots.get(id), [id]);
   const closures = useRows(() => getDb().lotClosures.where("lotId").equals(id).toArray(), [id]);
   const people = useRows(() => getDb().employees.toArray());
@@ -63,7 +66,7 @@ function LotDetail() {
       {!closed ? (
         <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
           <h2 className="font-medium">Chốt Lot</h2>
-          <p className="text-sm text-muted">Ghi người thực hiện, thời gian, ghi chú. Không xóa được lịch sử chốt.</p>
+          <p className="text-sm text-muted">Ghi người thực hiện, thời gian và ghi chú. Lịch sử được giữ cho đến khi Lot bị xóa.</p>
           <Field label="Ghi chú chốt">
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
           </Field>
@@ -115,6 +118,20 @@ function LotDetail() {
           })}
         </section>
       )}
+      {can(role, "manage_goods") ? (
+        <Button
+          className="w-full"
+          variant="danger"
+          onClick={async () => {
+            if (!confirm(closed ? "Xóa Lot đã chốt và toàn bộ lịch sử chốt?" : "Xóa Lot này?")) return;
+            await deleteLot(id);
+            toast.success("Đã xóa Lot");
+            void nav({ to: "/goods" });
+          }}
+        >
+          Xóa Lot
+        </Button>
+      ) : null}
     </div>
   );
 }
