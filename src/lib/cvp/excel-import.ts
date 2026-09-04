@@ -86,8 +86,10 @@ async function readWorkbook(file: File): Promise<Sheet[]> {
 }
 
 function chooseSheet(sheets: Sheet[], kind: ExcelImportKind): Sheet | undefined {
-  const targets: Record<ExcelImportKind, string[]> = { people: ["lich lam viec"], ot: ["lam them"], data: ["shohindata"], export: ["ke hoach"] };
-  return sheets.find((sheet) => targets[kind].some((target) => normalized(sheet.name).includes(target))) ?? sheets[0];
+  const targets: Record<ExcelImportKind, string[]> = { people: ["lich lam viec"], ot: ["lam them"], data: ["shoindata", "shohindata"], export: ["ke hoach"] };
+  const matched = sheets.find((sheet) => targets[kind].some((target) => normalized(sheet.name).includes(target)));
+  // DATA bắt buộc đọc đúng sheet nghiệp vụ, không tự rơi sang sheet đầu tiên.
+  return matched ?? (kind === "data" ? undefined : sheets[0]);
 }
 
 function headerRow(sheet: Sheet, required: string[]): number {
@@ -96,15 +98,6 @@ function headerRow(sheet: Sheet, required: string[]): number {
 
 function findColumn(row: Cell[], aliases: string[]): number {
   return row.findIndex((cell) => aliases.some((alias) => normalized(cell).includes(alias)));
-}
-
-function statusFrom(value: Cell | undefined): DataStatus {
-  const status = normalized(value);
-  if (status.includes("hoan thanh") || status === "ok") return "COMPLETED";
-  if (status.includes("gui") || status.includes("giao")) return "PUSHED";
-  if (status.includes("thieu") || status.includes("chua")) return "MISSING";
-  if (status.includes("xu ly")) return "PROCESSING";
-  return "NEW";
 }
 
 function parseTime(value: Cell | undefined): { startTime: string; endTime: string; type: string } | null {
@@ -245,7 +238,7 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const sheets = await readWorkbook(file);
   if (kind === "export") return parseExportWorkbook(sheets, fallbackDate);
   const sheet = chooseSheet(sheets, kind);
-  if (!sheet) throw new Error("Không tìm thấy sheet trong file Excel");
+  if (!sheet) throw new Error(kind === "data" ? "Không tìm thấy sheet Shoindata trong file Excel" : "Không tìm thấy sheet trong file Excel");
   const required = kind === "people" ? ["sbd", "ho"] : kind === "ot" ? ["sbd", "ca"] : kind === "data" ? ["ma san pham"] : ["invoice"];
   const headerIndex = headerRow(sheet, required);
   if (headerIndex < 0) throw new Error("Không nhận diện được dòng tiêu đề. Hãy dùng mẫu Excel đã cung cấp.");
@@ -254,7 +247,7 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const code = column("sbd", "ma nhan vien"); const name = column("ho va ten", "ho ten");
   const product = column("ma san pham", "ma hang"); const design = column("thiet ke"); const invoice = column("invoice", "invoi", "san pham co the xuat");
   const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const planDate = column("ngay pc", "ngay xuat", "ngay giao");
-  const factory = column("nha may"); const status = column("tinh trang data", "tinh trang"); const actualDate = column("thuc te", "nhan qa"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
+  const factory = column("nha may"); const actualDate = column("thuc te", "nhan qa"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
   const position = column("vi tri"); const phone = column("dien thoai");
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
   const scheduleRows: ScheduleImportRow[] = [];
@@ -278,13 +271,15 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
       if (!employeeCode || !timing) { skipped++; continue; }
       rows.push({ code: employeeCode, name: text(row[name]), ...timing, note: text(row[work]), date: sheetDate ? toDate(sheetDate, fallbackDate) : fallbackDate });
     } else if (kind === "data") {
+      // Theo mẫu thực tế, cột N (index 13) là điều kiện lấy dữ liệu.
+      if (normalized(row[13]) !== "chua gui") { skipped++; continue; }
       const productCode = text(row[product]);
       if (!productCode) { skipped++; continue; }
       const inv = text(row[invoice]);
-      rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[actualDate >= 0 ? actualDate : planDate], fallbackDate)}T00:00:00`).getTime(), status: statusFrom(row[status]), note: `Nhập Excel${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
+      rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[actualDate >= 0 ? actualDate : planDate], fallbackDate)}T00:00:00`).getTime(), status: "NEW", note: `Nhập Shoindata · Cột N: Chưa gửi${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
     }
   }
-  if (!rows.length) warnings.push("Không có dòng hợp lệ để nhập; hãy kiểm tra sheet và nhà máy E.");
+  if (!rows.length) warnings.push(kind === "data" ? "Không có dòng nào trong Shoindata có cột N = Chưa gửi." : "Không có dòng hợp lệ để nhập; hãy kiểm tra sheet và nhà máy E.");
   return { sheetName: sheet.name, rows, scheduleRows: kind === "people" ? scheduleRows : undefined, skipped, warnings };
 }
 
