@@ -14,6 +14,7 @@ import { computeOtHours } from "@/lib/cvp/ot";
 import { formatHours } from "@/lib/cvp/time";
 import { OT_TYPES, type AmhStatus } from "@/lib/cvp/types";
 import { can } from "@/lib/cvp/permissions";
+import { ExcelImportDialog } from "@/components/cvp/excel-import-dialog";
 
 export const Route = createFileRoute("/ot")({ component: OtPage });
 
@@ -27,6 +28,8 @@ function OtPage() {
   const amhs = useRows(() => getDb().amhs.toArray());
   const [tab, setTab] = useState<"ot" | "amh">("ot");
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
   const todayOt = ots.filter((o) => o.date === date);
   const totalMin = ots.reduce((s, o) => s + o.totalMinutes, 0);
 
@@ -37,9 +40,10 @@ function OtPage() {
         subtitle={`Làm tròn ${round} phút · qua 00:00 tính đúng`}
         action={
           can(role, "manage_ot") ? (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              Khai báo
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>Nhập Excel</Button>
+              <Button size="sm" onClick={() => setOpen(true)}>Khai báo</Button>
+            </div>
           ) : null
         }
       />
@@ -123,6 +127,7 @@ function OtPage() {
         round={round}
         tab={tab}
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind="ot" date={date} shiftId={shiftId ?? shifts[0]?.id ?? ""} shifts={shifts} employees={people} />
     </div>
   );
 }

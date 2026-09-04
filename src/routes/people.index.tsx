@@ -5,6 +5,7 @@ import { PageHeader, EmptyState } from "@/components/cvp/page-header";
 import { EmployeeBadge } from "@/components/cvp/status-badge";
 import { FilterChip } from "@/components/cvp/filter-chip";
 import { PersonForm } from "@/components/cvp/person-form";
+import { ExcelImportDialog } from "@/components/cvp/excel-import-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ function PeoplePage() {
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
   const [groupFilter, setGroupFilter] = useState("all");
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [newGroup, setNewGroup] = useState("");
   const filtered = people.filter((p) => groupFilter === "all" || p.groupId === groupFilter);
@@ -35,9 +37,10 @@ function PeoplePage() {
         subtitle={`${people.length} người`}
         action={
           can(role, "manage_people") ? (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              Thêm
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>Nhập Excel</Button>
+              <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
+            </div>
           ) : null
         }
       />
@@ -91,6 +94,7 @@ function PeoplePage() {
           setOpen(false);
         }}
       />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind="people" date="" shiftId={shifts[0]?.id ?? ""} groups={groups} shifts={shifts} />
 
       <Dialog open={groupOpen} onClose={() => setGroupOpen(false)} title="Nhóm">
         <ul className="mb-4 space-y-2">

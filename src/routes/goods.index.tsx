@@ -20,6 +20,7 @@ import {
   type LotStatus,
 } from "@/lib/cvp/types";
 import { can } from "@/lib/cvp/permissions";
+import { ExcelImportDialog } from "@/components/cvp/excel-import-dialog";
 
 export const Route = createFileRoute("/goods/")({ component: GoodsPage });
 
@@ -29,6 +30,7 @@ function GoodsPage() {
   const [tab, setTab] = useState<"data" | "export" | "lot">("data");
   const [status, setStatus] = useState("all");
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const data = useRows(() => getDb().dataItems.reverse().sortBy("createdAt"));
   const goods = useRows(() => getDb().goodsItems.reverse().sortBy("createdAt"));
   const lots = useRows(() => getDb().lots.reverse().sortBy("createdAt"));
@@ -44,9 +46,10 @@ function GoodsPage() {
         subtitle="DATA · Xuất · Lot"
         action={
           can(role, "manage_goods") ? (
-            <Button size="sm" onClick={() => setOpen(true)}>
-              Thêm
-            </Button>
+            <div className="flex gap-2">
+              {tab !== "lot" ? <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>{tab === "data" ? "Nhập DATA" : "Nhập KH xuất"}</Button> : null}
+              <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
+            </div>
           ) : null
         }
       />
@@ -141,6 +144,7 @@ function GoodsPage() {
       ) : null}
 
       <AddGoodsDialog open={open} onClose={() => setOpen(false)} tab={tab} date={date} />
+      {tab !== "lot" ? <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind={tab} date={date} shiftId="" /> : null}
     </div>
   );
 }
