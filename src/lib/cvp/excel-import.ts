@@ -5,7 +5,7 @@ import { cleanShiftCode } from "./business-shifts";
 import { nid } from "./ids";
 import type { BusinessShiftCode, DataStatus, Employee, GoodsItem, GoodsStatus, Group, Shift, WorkSchedule } from "./types";
 
-export type ExcelImportKind = "people" | "data" | "export" | "ot";
+export type ExcelImportKind = "people" | "data" | "export" | "air" | "sea" | "ot";
 type Cell = string | number | Date | null;
 type Sheet = { name: string; rows: Cell[][] };
 
@@ -86,7 +86,7 @@ async function readWorkbook(file: File): Promise<Sheet[]> {
 }
 
 function chooseSheet(sheets: Sheet[], kind: ExcelImportKind): Sheet | undefined {
-  const targets: Record<ExcelImportKind, string[]> = { people: ["lich lam viec"], ot: ["lam them"], data: ["shoindata", "shohindata"], export: ["ke hoach"] };
+  const targets: Record<ExcelImportKind, string[]> = { people: ["lich lam viec"], ot: ["lam them"], data: ["shoindata", "shohindata"], export: ["ke hoach"], air: ["air"], sea: ["w."] };
   const matched = sheets.find((sheet) => targets[kind].some((target) => normalized(sheet.name).includes(target)));
   // DATA bắt buộc đọc đúng sheet nghiệp vụ, không tự rơi sang sheet đầu tiên.
   return matched ?? (kind === "data" ? undefined : sheets[0]);
@@ -123,36 +123,38 @@ function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
   const headers = sheet.rows[headerIndex] ?? [];
   const dateCol = findColumn(headers, ["ngay xuat"]);
   const invoiceCol = findColumn(headers, ["invoice"]);
-  const totalCol = findColumn(headers, ["kien"]);
-  const boxCol = findColumn(headers, ["box"]);
-  const warehouseCol = findColumn(headers, ["nm"]);
+  // Mapping nghiệp vụ ưu tiên: G ngày, H invoice, N kiện, O box, W nhà máy.
+  // Một số file cũ có tiêu đề Kiện/Box lệch sang U/V, nên giữ fallback theo header.
+  const totalFallback = findColumn(headers, ["kien"]);
+  const boxFallback = findColumn(headers, ["box"]);
+  const factoryCol = 22; // W
   let currentDate = fallbackDate;
   let skipped = 0;
   const rows: ExportImportRow[] = [];
   for (const row of sheet.rows.slice(headerIndex + 1)) {
-    if (row?.[dateCol]) currentDate = toDate(row[dateCol], currentDate);
+    if (row?.[6]) currentDate = toDate(row[6], currentDate);
     const invoice = text(row?.[invoiceCol]);
     if (!invoice) continue;
-    const allocations = ["BC", "E", "D", "A"].map((name, index) => {
-      const value = numberValue(row?.[11 + index * 2]);
-      return value ? `${name}: ${value}` : "";
-    }).filter(Boolean);
+    const factory = text(row?.[factoryCol]);
+    if (normalized(factory) !== "e") { skipped++; continue; }
     if (!currentDate) { skipped++; continue; }
+    const quantity = numberValue(row?.[13]) || numberValue(row?.[totalFallback]);
+    const box = numberValue(row?.[14]) || numberValue(row?.[boxFallback]);
     rows.push({
       productCode: invoice,
       itemCode: "AIR",
       invoice,
       lot: invoice,
-      quantity: numberValue(row?.[totalCol]),
+      quantity,
       exportDate: currentDate,
       status: "WAITING",
-      note: joinNote(["Kế hoạch Air", allocations.join(", "), numberValue(row?.[boxCol]) ? `Box: ${numberValue(row?.[boxCol])}` : ""]),
+      note: joinNote(["Kế hoạch Hàng Air", box ? `Box: ${box}` : ""]),
       sourceKind: "AIR",
       destination: "AIR",
       confirmation: "",
       containerCount: 0,
-      looseQuantity: "",
-      warehouse: text(row?.[warehouseCol]),
+      looseQuantity: box ? String(box) : "",
+      warehouse: factory,
     });
   }
   return { sheetName: sheet.name, rows, skipped, warnings: rows.length ? [] : ["Không tìm thấy dòng kế hoạch Air hợp lệ."] };
@@ -236,6 +238,12 @@ function parseExportWorkbook(sheets: Sheet[], fallbackDate: string): ImportPrevi
 
 export async function previewExcelImport(file: File, kind: ExcelImportKind, fallbackDate: string): Promise<ImportPreview> {
   const sheets = await readWorkbook(file);
+  if (kind === "air") {
+    const sheet = sheets.find((item) => normalized(item.name).includes("air"));
+    if (!sheet) throw new Error("Không tìm thấy sheet Hàng Air trong file");
+    return parseAirExport(sheet, fallbackDate);
+  }
+  if (kind === "sea") return parseSeaExport(sheets, fallbackDate);
   if (kind === "export") return parseExportWorkbook(sheets, fallbackDate);
   const sheet = chooseSheet(sheets, kind);
   if (!sheet) throw new Error(kind === "data" ? "Không tìm thấy sheet Shoindata trong file Excel" : "Không tìm thấy sheet trong file Excel");

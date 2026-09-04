@@ -14,7 +14,7 @@ import {
 } from "@/lib/cvp/excel-import";
 import type { Employee, Group, Shift } from "@/lib/cvp/types";
 
-const TITLES: Record<ExcelImportKind, string> = { people: "Nhập nhân sự từ Excel", data: "Nhập DATA từ Excel", export: "Nhập kế hoạch xuất hàng", ot: "Nhập OT từ Excel" };
+const TITLES: Record<ExcelImportKind, string> = { people: "Nhập nhân sự từ Excel", data: "Nhập DATA từ Excel", export: "Nhập kế hoạch xuất hàng", air: "Nhập kế hoạch Hàng Air", sea: "Nhập kế hoạch Hàng xuất thường", ot: "Nhập OT từ Excel" };
 
 export function ExcelImportDialog({
   open, onClose, kind, date, shiftId, groups = [], shifts = [], employees = [],
@@ -48,15 +48,15 @@ export function ExcelImportDialog({
       let result: { created: number; updated?: number; skipped?: number; scheduled?: number };
       if (kind === "people") result = await importPeople(preview.rows as never, groupId, targetShiftId, preview.scheduleRows);
       else if (kind === "data") result = await importData(preview.rows as never);
-      else if (kind === "export") result = await importExport(preview.rows as never);
+      else if (kind === "export" || kind === "air" || kind === "sea") result = await importExport(preview.rows as never);
       else result = await importOt(preview.rows as never, employees, date, targetShiftId);
       toast.success(`Đã nhập ${result.created} dòng${result.updated ? `, cập nhật ${result.updated}` : ""}${result.scheduled ? `, ${result.scheduled} lịch ca` : ""}${result.skipped ? `, bỏ qua ${result.skipped}` : ""}`);
       setPreview(null); onClose();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể nhập dữ liệu"); }
     finally { setLoading(false); }
   };
-  const labels = kind === "people" ? ["SBD", "Họ tên", "Vị trí"] : kind === "ot" ? ["SBD", "Họ tên", "Khung giờ"] : kind === "data" ? ["Mã SP", "Invoice", "Lot"] : ["Mã SP", "Invoice", "Ngày xuất"];
-  const values = (row: Record<string, unknown>) => kind === "people" ? [row.code, row.name, row.position] : kind === "ot" ? [row.code, row.name, `${row.startTime}–${row.endTime}`] : kind === "data" ? [row.productCode, row.invoice, row.lot] : [row.productCode, row.invoice, row.exportDate];
+  const labels = kind === "people" ? ["SBD", "Họ tên", "Vị trí"] : kind === "ot" ? ["SBD", "Họ tên", "Khung giờ"] : kind === "data" ? ["Mã SP", "Invoice", "Lot"] : ["Invoice", "Số kiện", "Ngày xuất"];
+  const values = (row: Record<string, unknown>) => kind === "people" ? [row.code, row.name, row.position] : kind === "ot" ? [row.code, row.name, `${row.startTime}–${row.endTime}`] : kind === "data" ? [row.productCode, row.invoice, row.lot] : [row.invoice, row.quantity, row.exportDate];
   return <Dialog open={open} onClose={onClose} title={TITLES[kind]} wide>
     <div className="space-y-3">
       <p className="text-sm text-muted">Chọn file .xlsx hoặc .xlsm. Hệ thống đọc file ngay trên thiết bị và hiển thị bản xem trước trước khi lưu.</p>

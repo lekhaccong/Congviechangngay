@@ -27,7 +27,7 @@ export const Route = createFileRoute("/goods/")({ component: GoodsPage });
 function GoodsPage() {
   const date = useAppStore((s) => s.selectedDate);
   const role = useAppStore((s) => s.role);
-  const [tab, setTab] = useState<"data" | "export" | "lot">("data");
+  const [tab, setTab] = useState<"data" | "air" | "export" | "lot">("data");
   const [status, setStatus] = useState("all");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -39,31 +39,33 @@ function GoodsPage() {
 
   const dataShown = data.filter((d) => status === "all" || d.status === status);
   const goodsShown = goods.filter((d) => status === "all" || d.status === status);
+  const airShown = goodsShown.filter((item) => item.sourceKind === "AIR");
+  const seaShown = goodsShown.filter((item) => item.sourceKind !== "AIR");
   const lotsShown = lots.filter((d) => status === "all" || d.status === status);
 
   return (
     <div>
       <PageHeader
         title="Hàng"
-        subtitle="DATA · Xuất · Lot"
+        subtitle="DATA · Hàng Air · Hàng xuất · Lot"
         action={
           can(role, "manage_goods") ? (
             <div className="flex gap-2">
-              {tab !== "export" ? <Button size="sm" variant="ghost" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? "Hủy" : "Chọn"}</Button> : null}
-              {tab !== "lot" ? <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>{tab === "data" ? "Nhập DATA" : "Nhập KH xuất"}</Button> : null}
+              {tab === "data" || tab === "lot" ? <Button size="sm" variant="ghost" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? "Hủy" : "Chọn"}</Button> : null}
+              {tab !== "lot" ? <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>{tab === "data" ? "Nhập DATA" : tab === "air" ? "Nhập Hàng Air" : "Nhập Hàng xuất"}</Button> : null}
               <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
             </div>
           ) : null
         }
       />
-      <div className="mb-3 grid grid-cols-3 gap-2">
-        {(["data", "export", "lot"] as const).map((t) => (
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        {(["data", "air", "export", "lot"] as const).map((t) => (
           <Button key={t} variant={tab === t ? "default" : "secondary"} onClick={() => { setTab(t); setStatus("all"); setSelecting(false); setSelected(new Set()); }}>
-            {t === "data" ? "DATA" : t === "export" ? "Hàng xuất" : "Lot"}
+            {t === "data" ? "DATA" : t === "air" ? "Hàng Air" : t === "export" ? "Hàng xuất" : "Lot"}
           </Button>
         ))}
       </div>
-      {selecting && tab !== "export" ? (
+      {selecting && (tab === "data" || tab === "lot") ? (
         <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
           <button
             type="button"
@@ -103,7 +105,7 @@ function GoodsPage() {
                 {DATA_STATUS_LABEL[s]}
               </FilterChip>
             ))
-          : tab === "export"
+          : tab === "air" || tab === "export"
             ? (Object.keys(GOODS_STATUS_LABEL) as GoodsStatus[]).map((s) => (
                 <FilterChip key={s} active={status === s} onClick={() => setStatus(s)}>
                   {GOODS_STATUS_LABEL[s]}
@@ -137,17 +139,17 @@ function GoodsPage() {
         )
       ) : null}
 
-      {tab === "export" ? (
-        goodsShown.length === 0 ? (
-          <EmptyState title="Chưa có hàng xuất" />
+      {tab === "air" || tab === "export" ? (
+        (tab === "air" ? airShown : seaShown).length === 0 ? (
+          <EmptyState title={tab === "air" ? "Chưa có Hàng Air" : "Chưa có hàng xuất thường"} />
         ) : (
           <ul className="space-y-2">
-            {goodsShown.map((d) => (
+            {(tab === "air" ? airShown : seaShown).map((d) => (
               <li key={d.id}>
                 <Link to="/goods/export/$id" params={{ id: d.id }} className="flex items-center justify-between rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
                   <div>
                     <p className="font-medium">{d.invoice}</p>
-                    <p className="font-mono text-xs text-muted">{d.sourceKind === "AIR" ? "AIR" : d.destination || d.productCode} · {d.exportDate} · SL {d.quantity}</p>
+                    <p className="font-mono text-xs text-muted">{d.sourceKind === "AIR" ? `Air · Box ${d.looseQuantity || "0"} · NM ${d.warehouse || "E"}` : d.destination || d.productCode} · {d.exportDate} · SL {d.quantity}</p>
                   </div>
                   <GoodsBadge status={d.status} />
                 </Link>
@@ -179,7 +181,7 @@ function GoodsPage() {
       ) : null}
 
       <AddGoodsDialog open={open} onClose={() => setOpen(false)} tab={tab} date={date} />
-      {tab !== "lot" ? <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind={tab} date={date} shiftId="" /> : null}
+      {tab !== "lot" ? <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind={tab === "air" ? "air" : tab === "export" ? "sea" : "data"} date={date} shiftId="" /> : null}
     </div>
   );
 }
@@ -192,7 +194,7 @@ function AddGoodsDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  tab: "data" | "export" | "lot";
+  tab: "data" | "air" | "export" | "lot";
   date: string;
 }) {
   const [productCode, setPc] = useState("");
@@ -204,7 +206,7 @@ function AddGoodsDialog({
   const [itemCode, setItem] = useState("");
 
   return (
-    <Dialog open={open} onClose={onClose} title={tab === "data" ? "DATA mới" : tab === "export" ? "Hàng xuất mới" : "Lot mới"}>
+    <Dialog open={open} onClose={onClose} title={tab === "data" ? "DATA mới" : tab === "air" ? "Hàng Air mới" : tab === "export" ? "Hàng xuất mới" : "Lot mới"}>
       <form
         className="space-y-3"
         onSubmit={async (e) => {
@@ -221,7 +223,7 @@ function AddGoodsDialog({
               status: "NEW",
               note,
             });
-          } else if (tab === "export") {
+          } else if (tab === "air" || tab === "export") {
             await upsertGoods({
               invoice,
               itemCode: itemCode || productCode,
@@ -231,6 +233,12 @@ function AddGoodsDialog({
               exportDate: date,
               status: "WAITING",
               note,
+              sourceKind: tab === "air" ? "AIR" : "SEA",
+              destination: tab === "air" ? "AIR" : "",
+              confirmation: "",
+              containerCount: 0,
+              looseQuantity: "",
+              warehouse: tab === "air" ? "E" : "",
             });
           } else {
             await upsertLot({
@@ -257,7 +265,7 @@ function AddGoodsDialog({
             <Input value={designCode} onChange={(e) => setDc(e.target.value)} />
           </Field>
         ) : null}
-        {tab === "export" ? (
+        {tab === "air" || tab === "export" ? (
           <Field label="Mã hàng">
             <Input value={itemCode} onChange={(e) => setItem(e.target.value)} />
           </Field>
