@@ -13,6 +13,7 @@ import { getDb } from "@/lib/cvp/db";
 import { useAppStore } from "@/lib/cvp/store";
 import { formatHours } from "@/lib/cvp/time";
 import { Stat } from "@/components/cvp/page-header";
+import { effectiveShiftCode, scheduleMatchesManagerShift } from "@/lib/cvp/business-shifts";
 
 export const Route = createFileRoute("/")({ component: Dashboard });
 
@@ -21,6 +22,9 @@ function Dashboard() {
   const shiftId = useAppStore((s) => s.selectedShiftId);
 
   const employees = useRows(() => getDb().employees.toArray());
+  const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
+  const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
+  const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).toArray(), [date]);
   const attendance = useRows(
     () => getDb().attendance.filter((a) => a.date === date && (!shiftId || a.shiftId === shiftId)).toArray(),
     [date, shiftId],
@@ -46,8 +50,15 @@ function Dashboard() {
     () => getDb().abnormalities.filter((a) => a.status === "NEW" || a.status === "PROCESSING").toArray(),
   );
 
-  const onShift = employees.filter((e) => !shiftId || e.shiftId === shiftId);
-  const present = attendance.filter((a) => a.checkIn && a.status !== "ABSENT").length;
+  const selectedShift = shifts.find((shift) => shift.id === shiftId);
+  const scheduleByEmployee = new Map(schedules.map((schedule) => [schedule.employeeId, schedule]));
+  const onShift = schedules.length
+    ? employees.filter((employee) => {
+        const code = effectiveShiftCode(scheduleByEmployee.get(employee.id), adjustments);
+        return employee.status === "ACTIVE" && Boolean(code && scheduleMatchesManagerShift(code, selectedShift));
+      })
+    : employees.filter((employee) => !shiftId || employee.shiftId === shiftId);
+  const present = attendance.filter((item) => item.status === "PRESENT").length;
   const missingPeople = Math.max(0, onShift.filter((e) => e.status === "ACTIVE").length - present);
   const taskDone = tasks.filter((t) => t.status === "COMPLETED").length;
   const taskOpen = tasks.filter((t) => t.status !== "COMPLETED").length;
@@ -167,7 +178,7 @@ function Dashboard() {
       </Link>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Quick to="/attendance" label="Chấm công" />
+        <Quick to="/attendance" label="Kiểm tra đầu ca" />
         <Quick to="/shift-log" label="Nhật ký ca" />
         <Quick to="/handover" label="Bàn giao" />
         <Quick to="/backup" label="Backup" />

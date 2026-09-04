@@ -1,6 +1,6 @@
 export const APP_NAME = "CongViecPro";
-export const APP_VERSION = "1.2.0";
-export const DB_VERSION = 3;
+export const APP_VERSION = "1.3.0";
+export const DB_VERSION = 4;
 export const BACKUP_VERSION = 1;
 
 export type Role = "ADMIN" | "LEADER" | "USER" | "VIEWER";
@@ -61,13 +61,18 @@ export type AuditAction =
   | "EXPORT"
   | "PHOTO"
   | "PROGRESS"
-  | "HANDOVER";
+  | "HANDOVER"
+  | "SHIFT_CHANGE"
+  | "SHIFT_REVERT"
+  | "ATTENDANCE_CONFIRM"
+  | "OT_CONFIRM";
 
 export type ModuleKey =
   | "employees"
   | "groups"
   | "shifts"
   | "workSchedules"
+  | "scheduleAdjustments"
   | "attendance"
   | "workBlocks"
   | "tasks"
@@ -130,6 +135,24 @@ export interface WorkSchedule {
   updatedAt: number;
 }
 
+export type ScheduleAdjustmentStatus = "ACTIVE" | "REVERTED";
+export type ScheduleAdjustmentKind = "CHANGE" | "SWAP";
+
+export interface ScheduleAdjustment {
+  id: string;
+  batchId: string;
+  date: string;
+  employeeId: string;
+  originalShiftCode: BusinessShiftCode;
+  adjustedShiftCode: BusinessShiftCode;
+  kind: ScheduleAdjustmentKind;
+  reason: string;
+  status: ScheduleAdjustmentStatus;
+  createdBy: string;
+  createdAt: number;
+  revertedAt: number | null;
+}
+
 export interface Attendance {
   id: string;
   employeeId: string;
@@ -140,6 +163,9 @@ export interface Attendance {
   status: AttendanceStatus;
   otMinutes: number;
   note: string;
+  actualShiftCode?: BusinessShiftCode;
+  confirmedAt?: number;
+  confirmedBy?: string;
   sample?: boolean;
   createdAt: number;
 }
@@ -233,6 +259,8 @@ export interface Overtime {
   note: string;
   ratePercent?: number;
   rateLabel?: string;
+  attendanceConfirmedAt?: number;
+  attendanceConfirmedBy?: string;
   sample?: boolean;
   createdAt: number;
 }

@@ -8,6 +8,7 @@ import { PersonForm } from "@/components/cvp/person-form";
 import { useRow, useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { deleteEmployee, updateEmployee } from "@/lib/cvp/repo";
+import { effectiveShiftCode } from "@/lib/cvp/business-shifts";
 import { can } from "@/lib/cvp/permissions";
 import { useAppStore } from "@/lib/cvp/store";
 import { ROLE_LABEL } from "@/lib/cvp/types";
@@ -29,6 +30,7 @@ function PersonDetail() {
   );
   const ots = useRows(() => getDb().overtimes.where("employeeId").equals(id).toArray(), [id]);
   const schedules = useRows(() => getDb().workSchedules.where("employeeId").equals(id).sortBy("date"), [id]);
+  const adjustments = useRows(() => getDb().scheduleAdjustments.where("employeeId").equals(id).toArray(), [id]);
   const [edit, setEdit] = useState(false);
   if (!person) return <p className="text-muted">Không tìm thấy nhân sự.</p>;
   const g = groups.find((x) => x.id === person.groupId);
@@ -64,7 +66,8 @@ function PersonDetail() {
           {schedules.filter((item) => item.date >= date).slice(0, 12).map((item) => (
             <div key={item.id} className="rounded-md bg-surface-2 p-2 text-center">
               <p className="text-xs text-muted">{item.date.slice(5)}</p>
-              <p className="font-mono font-semibold">{item.shiftCode}</p>
+              <p className="font-mono font-semibold">{effectiveShiftCode(item, adjustments)}</p>
+              {effectiveShiftCode(item, adjustments) !== item.shiftCode ? <p className="text-[10px] text-warn">Gốc {item.shiftCode}</p> : null}
             </div>
           ))}
           {schedules.filter((item) => item.date >= date).length === 0 ? <p className="col-span-4 text-sm text-muted">Chưa nhập lịch ca</p> : null}

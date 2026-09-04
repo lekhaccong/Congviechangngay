@@ -19,6 +19,7 @@ import type {
   Overtime,
   Photo,
   Shift,
+  ScheduleAdjustment,
   Task,
   ThreeSRecord,
   WorkBlock,
@@ -30,6 +31,7 @@ export class CvpDB extends Dexie {
   groups!: Table<Group, string>;
   shifts!: Table<Shift, string>;
   workSchedules!: Table<WorkSchedule, string>;
+  scheduleAdjustments!: Table<ScheduleAdjustment, string>;
   attendance!: Table<Attendance, string>;
   workBlocks!: Table<WorkBlock, string>;
   tasks!: Table<Task, string>;
@@ -109,6 +111,33 @@ export class CvpDB extends Dexie {
       groups: "id, order",
       shifts: "id, order",
       workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]",
+      workBlocks: "id, order",
+      tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId",
+      checklistItems: "id, checklistId, taskId, threeSId, done",
+      photos: "id, ownerModule, ownerId, createdAt",
+      blobs: "id",
+      auditLogs: "id, timestamp, module, recordId, date, shiftId, action",
+      overtimes: "id, employeeId, date, shiftId",
+      amhs: "id, employeeId, date, shiftId, status",
+      dataItems: "id, productCode, invoice, lot, status",
+      goodsItems: "id, invoice, productCode, lot, status, exportDate",
+      lots: "id, lotCode, invoice, productCode, status, date",
+      lotClosures: "id, lotId, closedAt",
+      threeS: "id, date, shiftId",
+      abnormalities: "id, status, detectedAt, linkedModule, linkedId",
+      notifications: "id, dueAt, read",
+      settings: "key",
+      handovers: "id, date, shiftId",
+    });
+
+    this.version(4).stores({
+      employees: "id, code, groupId, shiftId, status, name",
+      groups: "id, order",
+      shifts: "id, order",
+      workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]",
+      scheduleAdjustments: "id, batchId, date, employeeId, status, [employeeId+date]",
       attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]",
       workBlocks: "id, order",
       tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",

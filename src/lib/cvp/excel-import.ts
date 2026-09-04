@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { getDb } from "./db";
-import { createEmployee, createOvertime, upsertDataItem, writeAudit } from "./repo";
+import { createEmployee, createOvertime, normalizeEmployeeCode, upsertDataItem, writeAudit } from "./repo";
 import { cleanShiftCode } from "./business-shifts";
 import { nid } from "./ids";
 import type { BusinessShiftCode, DataStatus, Employee, GoodsItem, GoodsStatus, Group, Shift, WorkSchedule } from "./types";
@@ -289,19 +289,20 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
 }
 
 export async function importPeople(rows: PersonImportRow[], groupId: string, shiftId: string, schedules: ScheduleImportRow[] = []): Promise<{ created: number; updated: number; scheduled: number }> {
-  const db = getDb(); const existing = await db.employees.toArray(); const byCode = new Map(existing.map((item) => [item.code, item])); let created = 0; let updated = 0;
-  for (const row of rows) {
+  const db = getDb(); const existing = await db.employees.toArray(); const byCode = new Map(existing.map((item) => [normalizeEmployeeCode(item.code), item])); let created = 0; let updated = 0;
+  const uniqueRows = [...new Map(rows.map((row) => [normalizeEmployeeCode(row.code), { ...row, code: normalizeEmployeeCode(row.code) }])).values()];
+  for (const row of uniqueRows) {
     const old = byCode.get(row.code); const note = [row.position && `Vị trí: ${row.position}`, row.phone && `Điện thoại: ${row.phone}`].filter(Boolean).join(" · ");
     if (old) { await db.employees.update(old.id, { name: row.name, groupId, shiftId, serialNumber: row.code, note, updatedAt: Date.now() }); updated++; }
-    else { await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId, shiftId, status: "ACTIVE", role: "USER", note }); created++; }
+    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId, shiftId, status: "ACTIVE", role: "USER", note }); byCode.set(row.code, createdRow); created++; }
   }
   const employees = await db.employees.toArray();
-  const employeeByCode = new Map(employees.map((item) => [item.code, item]));
+  const employeeByCode = new Map(employees.map((item) => [normalizeEmployeeCode(item.code), item]));
   const existingSchedules = await db.workSchedules.toArray();
   const scheduleByKey = new Map(existingSchedules.map((item) => [`${item.employeeId}|${item.date}`, item]));
   const scheduleRowsToSave: WorkSchedule[] = [];
   for (const schedule of schedules) {
-    const employee = employeeByCode.get(schedule.code);
+    const employee = employeeByCode.get(normalizeEmployeeCode(schedule.code));
     if (!employee) continue;
     const now = Date.now();
     const old = scheduleByKey.get(`${employee.id}|${schedule.date}`);

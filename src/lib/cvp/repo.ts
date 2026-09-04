@@ -2,6 +2,7 @@ import { getDb } from "./db";
 import { nid } from "./ids";
 import { computeOtMinutes } from "./ot";
 import { computeOtRate } from "./ot-rate";
+import { effectiveShiftCode } from "./business-shifts";
 import { applyProgress, refreshTaskStatus } from "./progress";
 import { useAppStore } from "./store";
 import { formatDate, shiftWindow } from "./time";
@@ -11,6 +12,7 @@ import type {
   Attendance,
   AttendanceStatus,
   AuditAction,
+  BusinessShiftCode,
   DataItem,
   Employee,
   GoodsItem,
@@ -18,10 +20,16 @@ import type {
   Handover,
   Lot,
   Overtime,
+  ScheduleAdjustment,
   Task,
   ThreeSRecord,
   WorkBlock,
 } from "./types";
+
+export function normalizeEmployeeCode(value: string): string {
+  const code = value.trim().toUpperCase();
+  return /^\d+$/.test(code) ? code.padStart(5, "0") : code;
+}
 
 function ctx() {
   const s = useAppStore.getState();
@@ -62,10 +70,61 @@ export async function persistSetting(key: string, value: string): Promise<void> 
   await getDb().settings.put({ key, value });
 }
 
+/** Gom các bản ghi SBD trùng và chuyển toàn bộ dữ liệu liên kết về một nhân sự. */
+export async function consolidateDuplicateEmployees(): Promise<number> {
+  const db = getDb();
+  const employees = await db.employees.toArray();
+  const groups = new Map<string, Employee[]>();
+  for (const employee of employees) {
+    const code = normalizeEmployeeCode(employee.code);
+    groups.set(code, [...(groups.get(code) ?? []), employee]);
+  }
+  let removed = 0;
+  await db.transaction("rw", [db.employees, db.workSchedules, db.scheduleAdjustments, db.attendance, db.tasks, db.overtimes, db.amhs, db.abnormalities, db.settings], async () => {
+    for (const [code, rows] of groups) {
+      const ordered = [...rows].sort((a, b) => a.createdAt - b.createdAt);
+      const keeper = ordered[0];
+      if (!keeper) continue;
+      if (keeper.code !== code || keeper.serialNumber !== code) await db.employees.update(keeper.id, { code, serialNumber: code, updatedAt: Date.now() });
+      for (const duplicate of ordered.slice(1)) {
+        const schedules = await db.workSchedules.where("employeeId").equals(duplicate.id).toArray();
+        for (const schedule of schedules) {
+          const target = await db.workSchedules.where("[employeeId+date]").equals([keeper.id, schedule.date]).first();
+          if (target) {
+            if (schedule.updatedAt > target.updatedAt) await db.workSchedules.update(target.id, { shiftCode: schedule.shiftCode, source: schedule.source, updatedAt: schedule.updatedAt });
+            await db.workSchedules.delete(schedule.id);
+          } else await db.workSchedules.update(schedule.id, { employeeId: keeper.id });
+        }
+        await db.scheduleAdjustments.where("employeeId").equals(duplicate.id).modify({ employeeId: keeper.id });
+        const attendances = await db.attendance.where("employeeId").equals(duplicate.id).toArray();
+        for (const attendance of attendances) {
+          const target = await db.attendance.where("[employeeId+date+shiftId]").equals([keeper.id, attendance.date, attendance.shiftId]).first();
+          if (target) {
+            const preferred = attendance.status === "PRESENT" ? attendance : target;
+            await db.attendance.put({ ...preferred, id: target.id, employeeId: keeper.id });
+            await db.attendance.delete(attendance.id);
+          } else await db.attendance.update(attendance.id, { employeeId: keeper.id });
+        }
+        await db.tasks.where("assigneeId").equals(duplicate.id).modify({ assigneeId: keeper.id });
+        await db.overtimes.where("employeeId").equals(duplicate.id).modify({ employeeId: keeper.id });
+        await db.amhs.where("employeeId").equals(duplicate.id).modify({ employeeId: keeper.id });
+        await db.abnormalities.filter((row) => row.handlerId === duplicate.id).modify({ handlerId: keeper.id });
+        const currentUser = await db.settings.get("currentUserId");
+        if (currentUser?.value === duplicate.id) await db.settings.put({ key: "currentUserId", value: keeper.id });
+        await db.employees.delete(duplicate.id);
+        removed++;
+      }
+    }
+  });
+  return removed;
+}
+
 export async function createEmployee(data: Omit<Employee, "id" | "createdAt" | "updatedAt">) {
   const db = getDb();
+  const code = normalizeEmployeeCode(data.code);
+  if (await db.employees.where("code").equals(code).first()) throw new Error(`SBD ${code} đã tồn tại`);
   const now = Date.now();
-  const row: Employee = { ...data, id: nid(), createdAt: now, updatedAt: now };
+  const row: Employee = { ...data, code, serialNumber: code, id: nid(), createdAt: now, updatedAt: now };
   await db.transaction("rw", db.employees, db.auditLogs, async () => {
     await db.employees.add(row);
     await writeAudit({ action: "CREATE", module: "employees", recordId: row.id, newValue: row });
@@ -77,7 +136,10 @@ export async function updateEmployee(id: string, patch: Partial<Employee>) {
   const db = getDb();
   const old = await db.employees.get(id);
   if (!old) throw new Error("Không tìm thấy nhân sự");
-  const next = { ...old, ...patch, id, updatedAt: Date.now() };
+  const code = normalizeEmployeeCode(patch.code ?? old.code);
+  const duplicate = await db.employees.where("code").equals(code).first();
+  if (duplicate && duplicate.id !== id) throw new Error(`SBD ${code} đã tồn tại`);
+  const next = { ...old, ...patch, code, serialNumber: code, id, updatedAt: Date.now() };
   await db.transaction("rw", db.employees, db.auditLogs, async () => {
     await db.employees.put(next);
     await writeAudit({ action: "UPDATE", module: "employees", recordId: id, oldValue: old, newValue: next });
@@ -88,11 +150,83 @@ export async function updateEmployee(id: string, patch: Partial<Employee>) {
 export async function deleteEmployee(id: string) {
   const db = getDb();
   const old = await db.employees.get(id);
-  await db.transaction("rw", db.employees, db.workSchedules, db.auditLogs, async () => {
+  await db.transaction("rw", db.employees, db.workSchedules, db.scheduleAdjustments, db.auditLogs, async () => {
     await db.workSchedules.where("employeeId").equals(id).delete();
+    await db.scheduleAdjustments.where("employeeId").equals(id).delete();
     await db.employees.delete(id);
     await writeAudit({ action: "DELETE", module: "employees", recordId: id, oldValue: old });
   });
+}
+
+export async function getEffectiveShiftCodeForEmployee(employeeId: string, date: string): Promise<BusinessShiftCode | null> {
+  const db = getDb();
+  const [schedule, adjustments] = await Promise.all([
+    db.workSchedules.where("[employeeId+date]").equals([employeeId, date]).first(),
+    db.scheduleAdjustments.where("[employeeId+date]").equals([employeeId, date]).toArray(),
+  ]);
+  return effectiveShiftCode(schedule, adjustments);
+}
+
+async function refreshOtRatesForEmployees(employeeIds: string[], date: string) {
+  const db = getDb();
+  for (const employeeId of employeeIds) {
+    const code = await getEffectiveShiftCodeForEmployee(employeeId, date);
+    const rows = await db.overtimes.where("employeeId").equals(employeeId).filter((row) => row.date === date).toArray();
+    for (const row of rows) {
+      const rate = computeOtRate(row.date, row.startTime, row.endTime, code);
+      await db.overtimes.update(row.id, { ratePercent: rate.ratePercent, rateLabel: rate.rateLabel });
+    }
+  }
+}
+
+export async function changeSchedule(employeeId: string, date: string, shiftCode: BusinessShiftCode, reason: string) {
+  const db = getDb(); const c = ctx();
+  const originalShiftCode = await getEffectiveShiftCodeForEmployee(employeeId, date);
+  if (!originalShiftCode) throw new Error("Nhân sự chưa có lịch gốc trong ngày này");
+  if (originalShiftCode === shiftCode) throw new Error("Ca mới đang trùng với ca thực tế");
+  const now = Date.now(); const batchId = nid();
+  const row: ScheduleAdjustment = { id: nid(), batchId, date, employeeId, originalShiftCode, adjustedShiftCode: shiftCode, kind: "CHANGE", reason: reason.trim(), status: "ACTIVE", createdBy: c.userName, createdAt: now, revertedAt: null };
+  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, async () => {
+    await db.scheduleAdjustments.add(row);
+    await writeAudit({ action: "SHIFT_CHANGE", module: "scheduleAdjustments", recordId: batchId, newValue: row });
+  });
+  await refreshOtRatesForEmployees([employeeId], date);
+  return row;
+}
+
+export async function swapSchedules(firstEmployeeId: string, secondEmployeeId: string, date: string, reason: string) {
+  if (firstEmployeeId === secondEmployeeId) throw new Error("Hãy chọn hai nhân sự khác nhau");
+  const db = getDb(); const c = ctx();
+  const [firstCode, secondCode] = await Promise.all([
+    getEffectiveShiftCodeForEmployee(firstEmployeeId, date),
+    getEffectiveShiftCodeForEmployee(secondEmployeeId, date),
+  ]);
+  if (!firstCode || !secondCode) throw new Error("Cả hai nhân sự phải có lịch gốc trong ngày này");
+  if (firstCode === secondCode) throw new Error("Hai nhân sự đang cùng ca");
+  const now = Date.now(); const batchId = nid();
+  const common = { batchId, date, kind: "SWAP" as const, reason: reason.trim(), status: "ACTIVE" as const, createdBy: c.userName, createdAt: now, revertedAt: null };
+  const rows: ScheduleAdjustment[] = [
+    { ...common, id: nid(), employeeId: firstEmployeeId, originalShiftCode: firstCode, adjustedShiftCode: secondCode },
+    { ...common, id: nid(), employeeId: secondEmployeeId, originalShiftCode: secondCode, adjustedShiftCode: firstCode },
+  ];
+  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, async () => {
+    await db.scheduleAdjustments.bulkAdd(rows);
+    await writeAudit({ action: "SHIFT_CHANGE", module: "scheduleAdjustments", recordId: batchId, newValue: rows });
+  });
+  await refreshOtRatesForEmployees([firstEmployeeId, secondEmployeeId], date);
+  return rows;
+}
+
+export async function revertScheduleAdjustment(batchId: string) {
+  const db = getDb();
+  const rows = await db.scheduleAdjustments.where("batchId").equals(batchId).toArray();
+  if (!rows.some((row) => row.status === "ACTIVE")) throw new Error("Điều chỉnh này đã được hoàn tác");
+  const revertedAt = Date.now();
+  await db.transaction("rw", db.scheduleAdjustments, db.auditLogs, async () => {
+    await db.scheduleAdjustments.where("batchId").equals(batchId).modify({ status: "REVERTED", revertedAt });
+    await writeAudit({ action: "SHIFT_REVERT", module: "scheduleAdjustments", recordId: batchId, oldValue: rows, newValue: { revertedAt } });
+  });
+  await refreshOtRatesForEmployees([...new Set(rows.map((row) => row.employeeId))], rows[0]?.date ?? ctx().date);
 }
 
 export async function deleteEmployees(ids: string[]) {
@@ -257,6 +391,40 @@ export async function markAbsent(employeeId: string, note: string) {
   await db.attendance.put(row);
   await writeAudit({ action: "UPDATE", module: "attendance", recordId: row.id, newValue: row });
   return row;
+}
+
+export async function confirmAttendance(employeeId: string, date: string, shiftId: string, actualShiftCode: BusinessShiftCode) {
+  const db = getDb(); const c = ctx();
+  const existing = await db.attendance.where("[employeeId+date+shiftId]").equals([employeeId, date, shiftId]).first();
+  const now = Date.now();
+  const row: Attendance = existing
+    ? { ...existing, status: "PRESENT", checkIn: null, checkOut: null, otMinutes: 0, note: "Đã đến đầu ca", actualShiftCode, confirmedAt: now, confirmedBy: c.userName }
+    : { id: nid(), employeeId, date, shiftId, checkIn: null, checkOut: null, status: "PRESENT", otMinutes: 0, note: "Đã đến đầu ca", actualShiftCode, confirmedAt: now, confirmedBy: c.userName, createdAt: now };
+  await db.transaction("rw", db.attendance, db.auditLogs, async () => {
+    await db.attendance.put(row);
+    await writeAudit({ action: "ATTENDANCE_CONFIRM", module: "attendance", recordId: row.id, newValue: row });
+  });
+  return row;
+}
+
+export async function clearAttendanceConfirmation(id: string) {
+  const db = getDb(); const old = await db.attendance.get(id);
+  if (!old) return;
+  await db.transaction("rw", db.attendance, db.auditLogs, async () => {
+    await db.attendance.delete(id);
+    await writeAudit({ action: "DELETE", module: "attendance", recordId: id, oldValue: old });
+  });
+}
+
+export async function confirmAttendanceOvertime(id: string) {
+  const db = getDb(); const c = ctx(); const old = await db.overtimes.get(id);
+  if (!old) throw new Error("Không tìm thấy OT");
+  const next = { ...old, attendanceConfirmedAt: Date.now(), attendanceConfirmedBy: c.userName };
+  await db.transaction("rw", db.overtimes, db.auditLogs, async () => {
+    await db.overtimes.put(next);
+    await writeAudit({ action: "OT_CONFIRM", module: "overtimes", recordId: id, oldValue: old, newValue: next });
+  });
+  return next;
 }
 
 export async function createTask(data: Omit<Task, "id" | "createdAt" | "updatedAt" | "completedAt" | "status" | "progress"> & { progress?: number }) {
@@ -429,8 +597,8 @@ export async function createOvertime(data: Omit<Overtime, "id" | "totalMinutes" 
     endTime: data.endTime,
     roundMinutes: c.otRound,
   });
-  const schedule = await db.workSchedules.where("[employeeId+date]").equals([data.employeeId, data.date]).first();
-  const rate = computeOtRate(data.date, data.startTime, data.endTime, schedule?.shiftCode);
+  const actualShiftCode = await getEffectiveShiftCodeForEmployee(data.employeeId, data.date);
+  const rate = computeOtRate(data.date, data.startTime, data.endTime, actualShiftCode);
   const row: Overtime = { ...data, ratePercent: rate.ratePercent, rateLabel: rate.rateLabel, id: nid(), totalMinutes, createdAt: Date.now() };
   await db.transaction("rw", db.overtimes, db.auditLogs, async () => {
     await db.overtimes.add(row);
@@ -450,8 +618,8 @@ export async function updateOvertime(id: string, patch: Partial<Overtime>) {
     endTime: merged.endTime,
     roundMinutes: c.otRound,
   });
-  const schedule = await db.workSchedules.where("[employeeId+date]").equals([merged.employeeId, merged.date]).first();
-  const rate = computeOtRate(merged.date, merged.startTime, merged.endTime, schedule?.shiftCode);
+  const actualShiftCode = await getEffectiveShiftCodeForEmployee(merged.employeeId, merged.date);
+  const rate = computeOtRate(merged.date, merged.startTime, merged.endTime, actualShiftCode);
   Object.assign(merged, { ratePercent: rate.ratePercent, rateLabel: rate.rateLabel });
   await db.overtimes.put(merged);
   await writeAudit({ action: "UPDATE", module: "overtimes", recordId: id, oldValue: old, newValue: merged });

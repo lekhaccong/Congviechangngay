@@ -1,7 +1,7 @@
 import { startNativeReminders } from "./native-notifications";
 import { canUseDb, getDb } from "./db";
 import { clearSampleData, seedCatalog, seedSampleData } from "./seed";
-import { persistSetting, refreshOverdueTasks } from "./repo";
+import { consolidateDuplicateEmployees, persistSetting, refreshOverdueTasks } from "./repo";
 import { useAppStore } from "./store";
 import { formatDate, getActiveContext } from "./time";
 import type { Role } from "./types";
@@ -16,6 +16,7 @@ export async function initApp(): Promise<void> {
   }
   const db = getDb();
   await db.open();
+  await consolidateDuplicateEmployees();
   const initialized = await db.settings.get("initialized");
   if (!initialized) {
     await seedCatalog(db);

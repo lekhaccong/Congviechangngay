@@ -1,4 +1,4 @@
-import type { BusinessShiftCode } from "./types.ts";
+import type { BusinessShiftCode, ScheduleAdjustment, Shift, WorkSchedule } from "./types.ts";
 
 export const BUSINESS_SHIFT_RULES: Record<BusinessShiftCode, { label: string; startTime: string; endTime: string; dayOff: boolean; working: boolean }> = {
   M: { label: "Ca sáng", startTime: "06:00", endTime: "14:00", dayOff: false, working: true },
@@ -19,4 +19,24 @@ export const BUSINESS_SHIFT_RULES: Record<BusinessShiftCode, { label: string; st
 export function cleanShiftCode(value: unknown): BusinessShiftCode | null {
   const code = String(value ?? "").trim().replace(/^,+/, "").toUpperCase() as BusinessShiftCode;
   return code in BUSINESS_SHIFT_RULES ? code : null;
+}
+
+export function scheduleMatchesManagerShift(code: BusinessShiftCode, shift?: Shift | null): boolean {
+  if (!shift || code === "P") return false;
+  if (shift.order === 1) return code === "M" || code === "SM";
+  if (shift.order === 2) return ["M1", "X", "X5", "X3", "SM1", "S"].includes(code);
+  if (shift.order === 3) return code === "A" || code === "SA";
+  if (shift.order === 4) return code === "D" || code === "E";
+  const rule = BUSINESS_SHIFT_RULES[code];
+  return rule.startTime === shift.startTime && rule.endTime === shift.endTime;
+}
+
+export function effectiveShiftCode(
+  schedule: WorkSchedule | undefined,
+  adjustments: ScheduleAdjustment[],
+): BusinessShiftCode | null {
+  if (!schedule) return null;
+  return adjustments
+    .filter((item) => item.employeeId === schedule.employeeId && item.date === schedule.date && item.status === "ACTIVE")
+    .sort((a, b) => b.createdAt - a.createdAt)[0]?.adjustedShiftCode ?? schedule.shiftCode;
 }

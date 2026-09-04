@@ -19,7 +19,7 @@ export const Route = createFileRoute("/more")({ component: MorePage });
 
 const ITEMS = [
   { to: "/people", label: "Nhân sự", desc: "Danh sách, nhóm, ca", icon: Users },
-  { to: "/attendance", label: "Chấm công", desc: "Vào / ra / nghỉ", icon: CalendarCheck },
+  { to: "/attendance", label: "Kiểm tra đầu ca", desc: "Lịch thực tế, đổi ca, xác nhận OT", icon: CalendarCheck },
   { to: "/tasks", label: "Công việc", desc: "Khối, checklist, tiến độ", icon: ClipboardList },
   { to: "/ot", label: "OT / AMH", desc: "Khai báo và thống kê giờ", icon: Clock },
   { to: "/threes", label: "3S / 3D", desc: "Checklist khu vực", icon: Sparkles },

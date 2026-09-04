@@ -15,6 +15,7 @@ import { can } from "@/lib/cvp/permissions";
 import { useAppStore } from "@/lib/cvp/store";
 import { createEmployee, createGroup, deleteEmployees, deleteGroup, renameGroup } from "@/lib/cvp/repo";
 import { ROLE_LABEL } from "@/lib/cvp/types";
+import { effectiveShiftCode } from "@/lib/cvp/business-shifts";
 
 export const Route = createFileRoute("/people/")({ component: PeoplePage });
 
@@ -25,6 +26,7 @@ function PeoplePage() {
   const groups = useRows(() => getDb().groups.orderBy("order").toArray());
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
   const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
+  const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).toArray(), [date]);
   const [groupFilter, setGroupFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -97,6 +99,7 @@ function PeoplePage() {
             const g = groups.find((x) => x.id === p.groupId);
             const s = shifts.find((x) => x.id === p.shiftId);
             const schedule = schedules.find((x) => x.employeeId === p.id);
+            const actualShiftCode = effectiveShiftCode(schedule, adjustments);
             return (
               <li key={p.id} className="flex items-center">
                 {selecting ? (
@@ -112,7 +115,7 @@ function PeoplePage() {
                   <div className="min-w-0">
                     <p className="font-medium">{p.name}</p>
                     <p className="font-mono text-xs text-muted">
-                      {p.code} · {g?.name} · {schedule ? `Ca ${schedule.shiftCode}` : s?.name} · {ROLE_LABEL[p.role]}
+                      {p.code} · {g?.name} · {actualShiftCode ? `Ca ${actualShiftCode}${actualShiftCode !== schedule?.shiftCode ? " (đã đổi)" : ""}` : s?.name} · {ROLE_LABEL[p.role]}
                     </p>
                   </div>
                   <EmployeeBadge status={p.status} />
