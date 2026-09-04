@@ -22,12 +22,14 @@ import type {
   Task,
   ThreeSRecord,
   WorkBlock,
+  WorkSchedule,
 } from "./types";
 
 export class CvpDB extends Dexie {
   employees!: Table<Employee, string>;
   groups!: Table<Group, string>;
   shifts!: Table<Shift, string>;
+  workSchedules!: Table<WorkSchedule, string>;
   attendance!: Table<Attendance, string>;
   workBlocks!: Table<WorkBlock, string>;
   tasks!: Table<Task, string>;
@@ -81,6 +83,32 @@ export class CvpDB extends Dexie {
       employees: "id, code, groupId, shiftId, status, name",
       groups: "id, order",
       shifts: "id, order",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]",
+      workBlocks: "id, order",
+      tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId",
+      checklistItems: "id, checklistId, taskId, threeSId, done",
+      photos: "id, ownerModule, ownerId, createdAt",
+      blobs: "id",
+      auditLogs: "id, timestamp, module, recordId, date, shiftId, action",
+      overtimes: "id, employeeId, date, shiftId",
+      amhs: "id, employeeId, date, shiftId, status",
+      dataItems: "id, productCode, invoice, lot, status",
+      goodsItems: "id, invoice, productCode, lot, status, exportDate",
+      lots: "id, lotCode, invoice, productCode, status, date",
+      lotClosures: "id, lotId, closedAt",
+      threeS: "id, date, shiftId",
+      abnormalities: "id, status, detectedAt, linkedModule, linkedId",
+      notifications: "id, dueAt, read",
+      settings: "key",
+      handovers: "id, date, shiftId",
+    });
+
+    this.version(3).stores({
+      employees: "id, code, groupId, shiftId, status, name",
+      groups: "id, order",
+      shifts: "id, order",
+      workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]",
       attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]",
       workBlocks: "id, order",
       tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",

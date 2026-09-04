@@ -1,7 +1,6 @@
 export const APP_NAME = "CongViecPro";
-export const APP_VERSION = "1.1.1";
-// v2 keeps the same schema but establishes a migration checkpoint for future updates.
-export const DB_VERSION = 2;
+export const APP_VERSION = "1.2.0";
+export const DB_VERSION = 3;
 export const BACKUP_VERSION = 1;
 
 export type Role = "ADMIN" | "LEADER" | "USER" | "VIEWER";
@@ -68,6 +67,7 @@ export type ModuleKey =
   | "employees"
   | "groups"
   | "shifts"
+  | "workSchedules"
   | "attendance"
   | "workBlocks"
   | "tasks"
@@ -116,6 +116,18 @@ export interface Shift {
   endTime: string;
   crossesMidnight: boolean;
   order: number;
+}
+
+export type BusinessShiftCode = "M" | "M1" | "A" | "D" | "X" | "X5" | "X3" | "SM" | "SM1" | "S" | "SA" | "E" | "P";
+
+export interface WorkSchedule {
+  id: string;
+  employeeId: string;
+  date: string;
+  shiftCode: BusinessShiftCode;
+  source: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface Attendance {
@@ -219,6 +231,8 @@ export interface Overtime {
   totalMinutes: number;
   type: string;
   note: string;
+  ratePercent?: number;
+  rateLabel?: string;
   sample?: boolean;
   createdAt: number;
 }
@@ -262,6 +276,12 @@ export interface GoodsItem {
   exportDate: string;
   status: GoodsStatus;
   note: string;
+  sourceKind?: "SEA" | "AIR";
+  destination?: string;
+  confirmation?: string;
+  containerCount?: number;
+  looseQuantity?: string;
+  warehouse?: string;
   sample?: boolean;
   createdAt: number;
   updatedAt: number;

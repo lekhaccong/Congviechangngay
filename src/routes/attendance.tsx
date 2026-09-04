@@ -9,6 +9,7 @@ import { useAppStore } from "@/lib/cvp/store";
 import { checkIn, checkOut, markAbsent } from "@/lib/cvp/repo";
 import { can } from "@/lib/cvp/permissions";
 import { formatTime } from "@/lib/cvp/time";
+import { BUSINESS_SHIFT_RULES } from "@/lib/cvp/business-shifts";
 
 export const Route = createFileRoute("/attendance")({ component: AttendancePage });
 
@@ -17,12 +18,19 @@ function AttendancePage() {
   const shiftId = useAppStore((s) => s.selectedShiftId);
   const role = useAppStore((s) => s.role);
   const people = useRows(() => getDb().employees.orderBy("code").toArray());
+  const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
   const rows = useRows(
     () => getDb().attendance.filter((a) => a.date === date && (!shiftId || a.shiftId === shiftId)).toArray(),
     [date, shiftId],
   );
   const byEmp = new Map(rows.map((r) => [r.employeeId, r]));
-  const onShift = people.filter((p) => !shiftId || p.shiftId === shiftId);
+  const scheduleByEmp = new Map(schedules.map((schedule) => [schedule.employeeId, schedule]));
+  const onShift = schedules.length
+    ? people.filter((person) => {
+        const schedule = scheduleByEmp.get(person.id);
+        return schedule ? BUSINESS_SHIFT_RULES[schedule.shiftCode].working : false;
+      })
+    : people.filter((p) => !shiftId || p.shiftId === shiftId);
 
   return (
     <div>
@@ -30,6 +38,7 @@ function AttendancePage() {
       <ul className="divide-y divide-border overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
         {onShift.map((p) => {
           const rec = byEmp.get(p.id);
+          const schedule = scheduleByEmp.get(p.id);
           return (
             <li key={p.id} className="px-4 py-3">
               <div className="flex items-start justify-between gap-2">
@@ -37,6 +46,7 @@ function AttendancePage() {
                   <p className="font-medium">{p.name}</p>
                   <p className="font-mono text-xs text-muted">
                     {p.code}
+                    {schedule ? ` · ca ${schedule.shiftCode}` : ""}
                     {rec?.checkIn ? ` · vào ${formatTime(rec.checkIn)}` : ""}
                     {rec?.checkOut ? ` · ra ${formatTime(rec.checkOut)}` : ""}
                   </p>

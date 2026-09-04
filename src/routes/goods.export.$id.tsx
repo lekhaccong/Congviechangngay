@@ -38,6 +38,12 @@ function ExportDetail() {
           <dt className="text-xs text-muted">Ngày xuất</dt>
           <dd>{item.exportDate}</dd>
         </div>
+        {item.sourceKind ? <div><dt className="text-xs text-muted">Nguồn</dt><dd>{item.sourceKind === "AIR" ? "Kế hoạch Air" : "Kế hoạch xuất thường"}</dd></div> : null}
+        {item.destination ? <div><dt className="text-xs text-muted">Cảng đến</dt><dd>{item.destination}</dd></div> : null}
+        {item.confirmation ? <div><dt className="text-xs text-muted">Xác nhận</dt><dd>{item.confirmation}</dd></div> : null}
+        {item.containerCount ? <div><dt className="text-xs text-muted">Container</dt><dd>{item.containerCount}</dd></div> : null}
+        {item.looseQuantity ? <div><dt className="text-xs text-muted">Lẻ</dt><dd>{item.looseQuantity}</dd></div> : null}
+        {item.warehouse ? <div><dt className="text-xs text-muted">Kho</dt><dd>{item.warehouse}</dd></div> : null}
       </dl>
       <NativeSelect
         value={item.status}

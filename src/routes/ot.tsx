@@ -71,6 +71,7 @@ function OtPage() {
                   <p className="font-mono text-xs text-muted">
                     {o.date} · {o.startTime}–{o.endTime} · {o.type}
                   </p>
+                  {o.rateLabel ? <p className="text-xs text-muted">{o.rateLabel}</p> : null}
                 </div>
                 <div className="text-right">
                   <p className="font-mono tabular-nums">{formatHours(o.totalMinutes)}h</p>

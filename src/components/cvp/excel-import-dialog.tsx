@@ -45,12 +45,12 @@ export function ExcelImportDialog({
     if (!preview) return;
     setLoading(true);
     try {
-      let result: { created: number; updated?: number; skipped?: number };
-      if (kind === "people") result = await importPeople(preview.rows as never, groupId, targetShiftId);
+      let result: { created: number; updated?: number; skipped?: number; scheduled?: number };
+      if (kind === "people") result = await importPeople(preview.rows as never, groupId, targetShiftId, preview.scheduleRows);
       else if (kind === "data") result = await importData(preview.rows as never);
       else if (kind === "export") result = await importExport(preview.rows as never);
       else result = await importOt(preview.rows as never, employees, date, targetShiftId);
-      toast.success(`Đã nhập ${result.created} dòng${result.updated ? `, cập nhật ${result.updated}` : ""}${result.skipped ? `, bỏ qua ${result.skipped}` : ""}`);
+      toast.success(`Đã nhập ${result.created} dòng${result.updated ? `, cập nhật ${result.updated}` : ""}${result.scheduled ? `, ${result.scheduled} lịch ca` : ""}${result.skipped ? `, bỏ qua ${result.skipped}` : ""}`);
       setPreview(null); onClose();
     } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể nhập dữ liệu"); }
     finally { setLoading(false); }
@@ -67,7 +67,7 @@ export function ExcelImportDialog({
       {kind === "ot" ? <Field label="Ca khai OT"><NativeSelect value={targetShiftId} onChange={(e) => setTargetShiftId(e.target.value)}>{shifts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</NativeSelect></Field> : null}
       <Input type="file" accept=".xlsx,.xlsm" onChange={(event) => void chooseFile(event)} disabled={loading} />
       {preview ? <div className="rounded-lg bg-surface-2 p-3 text-sm">
-        <p className="font-medium">Sheet: {preview.sheetName} · {preview.rows.length} dòng hợp lệ{preview.skipped ? ` · bỏ qua ${preview.skipped}` : ""}</p>
+        <p className="font-medium">Sheet: {preview.sheetName} · {preview.rows.length} dòng hợp lệ{preview.scheduleRows?.length ? ` · ${preview.scheduleRows.length} lịch ca` : ""}{preview.skipped ? ` · bỏ qua ${preview.skipped}` : ""}</p>
         {preview.warnings.map((warning) => <p key={warning} className="mt-1 text-danger">{warning}</p>)}
         <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr>{labels.map((label) => <th key={label} className="pb-1 pr-3 text-muted">{label}</th>)}</tr></thead><tbody>{preview.rows.slice(0, 5).map((row, index) => <tr key={index}>{values(row as Record<string, unknown>).map((value, valueIndex) => <td key={valueIndex} className="pr-3">{String(value ?? "—")}</td>)}</tr>)}</tbody></table></div>
       </div> : null}

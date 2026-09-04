@@ -1,18 +1,21 @@
 import JSZip from "jszip";
 import { getDb } from "./db";
-import { createEmployee, createOvertime, upsertDataItem, upsertGoods, writeAudit } from "./repo";
-import type { DataStatus, Employee, GoodsStatus, Group, Shift } from "./types";
+import { createEmployee, createOvertime, upsertDataItem, writeAudit } from "./repo";
+import { cleanShiftCode } from "./business-shifts";
+import { nid } from "./ids";
+import type { BusinessShiftCode, DataStatus, Employee, GoodsItem, GoodsStatus, Group, Shift, WorkSchedule } from "./types";
 
 export type ExcelImportKind = "people" | "data" | "export" | "ot";
 type Cell = string | number | Date | null;
 type Sheet = { name: string; rows: Cell[][] };
 
 export type PersonImportRow = { code: string; name: string; position: string; phone: string };
+export type ScheduleImportRow = { code: string; date: string; shiftCode: BusinessShiftCode };
 export type DataImportRow = { productCode: string; designCode: string; invoice: string; lot: string; quantity: number; receivedAt: number; status: DataStatus; note: string };
-export type ExportImportRow = { productCode: string; itemCode: string; invoice: string; lot: string; quantity: number; exportDate: string; note: string };
+export type ExportImportRow = { productCode: string; itemCode: string; invoice: string; lot: string; quantity: number; exportDate: string; status: GoodsStatus; note: string; sourceKind: "SEA" | "AIR"; destination: string; confirmation: string; containerCount: number; looseQuantity: string; warehouse: string };
 export type OtImportRow = { code: string; name: string; startTime: string; endTime: string; type: string; note: string; date: string | null };
 export type ImportRow = PersonImportRow | DataImportRow | ExportImportRow | OtImportRow;
-export type ImportPreview = { sheetName: string; rows: ImportRow[]; skipped: number; warnings: string[] };
+export type ImportPreview = { sheetName: string; rows: ImportRow[]; scheduleRows?: ScheduleImportRow[]; skipped: number; warnings: string[] };
 
 const text = (value: Cell | undefined) => value instanceof Date ? value.toLocaleDateString("en-CA") : String(value ?? "").trim();
 const normalized = (value: Cell | undefined) => text(value).normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -111,8 +114,137 @@ function parseTime(value: Cell | undefined): { startTime: string; endTime: strin
   return { startTime: `${match[1]!.padStart(2, "0")}:00`, endTime: `${match[2]!.padStart(2, "0")}:00`, type: raw.replace(/\(.+?\)/, "").trim() || "OT Excel" };
 }
 
+function dateAtOffset(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() + days);
+  return value.toLocaleDateString("en-CA");
+}
+
+function joinNote(parts: Array<string | null | undefined>): string {
+  return parts.filter((part): part is string => Boolean(part?.trim())).join(" · ");
+}
+
+function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
+  const headerIndex = headerRow(sheet, ["ngay xuat", "invoice"]);
+  if (headerIndex < 0) throw new Error("Không nhận diện được tiêu đề kế hoạch Air");
+  const headers = sheet.rows[headerIndex] ?? [];
+  const dateCol = findColumn(headers, ["ngay xuat"]);
+  const invoiceCol = findColumn(headers, ["invoice"]);
+  const totalCol = findColumn(headers, ["kien"]);
+  const boxCol = findColumn(headers, ["box"]);
+  const warehouseCol = findColumn(headers, ["nm"]);
+  let currentDate = fallbackDate;
+  let skipped = 0;
+  const rows: ExportImportRow[] = [];
+  for (const row of sheet.rows.slice(headerIndex + 1)) {
+    if (row?.[dateCol]) currentDate = toDate(row[dateCol], currentDate);
+    const invoice = text(row?.[invoiceCol]);
+    if (!invoice) continue;
+    const allocations = ["BC", "E", "D", "A"].map((name, index) => {
+      const value = numberValue(row?.[11 + index * 2]);
+      return value ? `${name}: ${value}` : "";
+    }).filter(Boolean);
+    if (!currentDate) { skipped++; continue; }
+    rows.push({
+      productCode: invoice,
+      itemCode: "AIR",
+      invoice,
+      lot: invoice,
+      quantity: numberValue(row?.[totalCol]),
+      exportDate: currentDate,
+      status: "WAITING",
+      note: joinNote(["Kế hoạch Air", allocations.join(", "), numberValue(row?.[boxCol]) ? `Box: ${numberValue(row?.[boxCol])}` : ""]),
+      sourceKind: "AIR",
+      destination: "AIR",
+      confirmation: "",
+      containerCount: 0,
+      looseQuantity: "",
+      warehouse: text(row?.[warehouseCol]),
+    });
+  }
+  return { sheetName: sheet.name, rows, skipped, warnings: rows.length ? [] : ["Không tìm thấy dòng kế hoạch Air hợp lệ."] };
+}
+
+function parseSeaExport(sheets: Sheet[], fallbackDate: string): ImportPreview {
+  const candidates = sheets.filter((sheet) => /^w[.\s]/i.test(sheet.name) && headerRow(sheet, ["invoice", "so kien"]) >= 0);
+  if (!candidates.length) throw new Error("Không tìm thấy sheet tuần W.xx trong kế hoạch xuất hàng");
+  const chosen = new Map<string, { sheet: Sheet; updated: number }>();
+  for (const sheet of candidates) {
+    const weekStartCell = sheet.rows[1]?.find((cell) => cell instanceof Date);
+    const weekStart = toDate(weekStartCell, fallbackDate);
+    const titleRow = sheet.rows[1] ?? [];
+    const updatedLabel = titleRow.findIndex((cell) => normalized(cell).includes("cap nhat"));
+    const updatedCell = updatedLabel >= 0 ? titleRow[updatedLabel + 1] : null;
+    const updated = updatedCell instanceof Date ? updatedCell.getTime() : 0;
+    const previous = chosen.get(weekStart);
+    if (!previous || updated >= previous.updated) chosen.set(weekStart, { sheet, updated });
+  }
+  const rows: ExportImportRow[] = [];
+  const destinationByConfirmation: Record<string, string> = {
+    AT: "NAGOYA", NT: "NAGOYA", BT: "NAGOYA", ST: "NAGOYA", TT: "NAGOYA",
+    HT: "HAKATA", KT: "USLAX-USLAX", CT: "CAVAN-CAVAN", UT: "USLAX-USLAX",
+    WT: "SHEKOU", SS: "SHIMIZU", ET: "KEELUNG", MT: "MANILA", SP: "MANILA",
+    WS: "MANZANILLO", LT: "LEAM CHABANG", VN: "SDVN",
+  };
+  let skipped = 0;
+  for (const [weekStart, { sheet }] of chosen) {
+    const headerIndex = headerRow(sheet, ["invoice", "so kien"]);
+    const headers = sheet.rows[headerIndex] ?? [];
+    const dayCol = findColumn(headers, ["ngay"]);
+    const confirmationCol = findColumn(headers, ["xac nhan"]);
+    const destinationCol = findColumn(headers, ["cang den"]);
+    const invoiceCol = findColumn(headers, ["invoice"]);
+    const quantityCol = findColumn(headers, ["so kien"]);
+    const totalCol = findColumn(headers, ["tong"]);
+    const containerCol = findColumn(headers, ["cont 44"]);
+    const looseCol = findColumn(headers, ["le"]);
+    const checkCol = findColumn(headers, ["check"]);
+    const noteCol = findColumn(headers, ["ghi chu"]);
+    let currentDate = weekStart;
+    let lastDestination = "";
+    for (const row of sheet.rows.slice(headerIndex + 1)) {
+      const day = normalized(row?.[dayCol]);
+      const dayMatch = day.match(/^thu\s*(\d)$/);
+      if (dayMatch) currentDate = dateAtOffset(weekStart, Math.max(0, Number(dayMatch[1]) - 2));
+      else if (row?.[dayCol] instanceof Date) currentDate = toDate(row[dayCol], currentDate);
+      if (text(row?.[destinationCol])) lastDestination = text(row[destinationCol]);
+      const prefix = text(row?.[invoiceCol]);
+      if (!prefix || !/^iv/i.test(prefix)) continue;
+      const suffix = text(row?.[invoiceCol + 1]);
+      const invoice = `${prefix}${suffix}`.replace(/\s+/g, "");
+      const confirmation = text(row?.[confirmationCol]);
+      const destination = text(row?.[destinationCol]) || destinationByConfirmation[confirmation] || lastDestination;
+      if (!currentDate || !invoice) { skipped++; continue; }
+      rows.push({
+        productCode: confirmation || invoice,
+        itemCode: destination || confirmation || invoice,
+        invoice,
+        lot: invoice,
+        quantity: numberValue(row?.[quantityCol]),
+        exportDate: currentDate,
+        status: normalized(row?.[checkCol]) === "ok" ? "COMPLETED" : "WAITING",
+        note: joinNote([`Sheet ${sheet.name}`, text(row?.[noteCol]), totalCol >= 0 && numberValue(row?.[totalCol]) ? `Tổng: ${numberValue(row?.[totalCol])}` : ""]),
+        sourceKind: "SEA",
+        destination,
+        confirmation,
+        containerCount: numberValue(row?.[containerCol]),
+        looseQuantity: text(row?.[looseCol]),
+        warehouse: "",
+      });
+    }
+  }
+  return { sheetName: `${chosen.size} sheet tuần`, rows, skipped, warnings: rows.length ? [] : ["Không tìm thấy dòng kế hoạch xuất hợp lệ."] };
+}
+
+function parseExportWorkbook(sheets: Sheet[], fallbackDate: string): ImportPreview {
+  const air = sheets.find((sheet) => normalized(sheet.name).includes("air"));
+  return air ? parseAirExport(air, fallbackDate) : parseSeaExport(sheets, fallbackDate);
+}
+
 export async function previewExcelImport(file: File, kind: ExcelImportKind, fallbackDate: string): Promise<ImportPreview> {
-  const sheet = chooseSheet(await readWorkbook(file), kind);
+  const sheets = await readWorkbook(file);
+  if (kind === "export") return parseExportWorkbook(sheets, fallbackDate);
+  const sheet = chooseSheet(sheets, kind);
   if (!sheet) throw new Error("Không tìm thấy sheet trong file Excel");
   const required = kind === "people" ? ["sbd", "ho"] : kind === "ot" ? ["sbd", "ca"] : kind === "data" ? ["ma san pham"] : ["invoice"];
   const headerIndex = headerRow(sheet, required);
@@ -125,6 +257,8 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const factory = column("nha may"); const status = column("tinh trang data", "tinh trang"); const actualDate = column("thuc te", "nhan qa"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
   const position = column("vi tri"); const phone = column("dien thoai");
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
+  const scheduleRows: ScheduleImportRow[] = [];
+  const sheetDate = sheet.rows.slice(0, 10).flat().find((cell): cell is Date => cell instanceof Date);
   for (const row of sheet.rows.slice(headerIndex + 1)) {
     if (!row?.some((cell) => text(cell))) continue;
     if (factory >= 0 && text(row[factory]) && normalized(row[factory]) !== "e") continue;
@@ -132,35 +266,50 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
       const employeeCode = codeValue(row[code]); const employeeName = text(row[name]);
       if (!employeeCode || !employeeName) { skipped++; continue; }
       rows.push({ code: employeeCode, name: employeeName, position: text(row[position]), phone: text(row[phone]) });
+      for (let columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+        if (!(headers[columnIndex] instanceof Date)) continue;
+        const shiftCode = cleanShiftCode(row[columnIndex]);
+        if (shiftCode) scheduleRows.push({ code: employeeCode, date: toDate(headers[columnIndex], fallbackDate), shiftCode });
+      }
     } else if (kind === "ot") {
-      const employeeCode = codeValue(row[code]); const timing = parseTime(row[shift >= 0 ? shift : work]);
+      const employeeCode = codeValue(row[code]);
+      const timingText = shift >= 0 ? ([row[shift], row[shift + 1], row[shift + 2]].map(text).join(" ") as Cell) : row[work];
+      const timing = parseTime(timingText);
       if (!employeeCode || !timing) { skipped++; continue; }
-      rows.push({ code: employeeCode, name: text(row[name]), ...timing, note: text(row[work]), date: null });
+      rows.push({ code: employeeCode, name: text(row[name]), ...timing, note: text(row[work]), date: sheetDate ? toDate(sheetDate, fallbackDate) : fallbackDate });
     } else if (kind === "data") {
       const productCode = text(row[product]);
       if (!productCode) { skipped++; continue; }
       const inv = text(row[invoice]);
       rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[actualDate >= 0 ? actualDate : planDate], fallbackDate)}T00:00:00`).getTime(), status: statusFrom(row[status]), note: `Nhập Excel${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
-    } else {
-      const productCode = text(row[product]) || text(row[invoice]);
-      let inv = text(row[invoice]);
-      if (invoice >= 0 && text(row[invoice + 1]) && !text(row[invoice + 1]).match(/[a-z]/i)) inv += text(row[invoice + 1]);
-      if (!productCode || !inv) { skipped++; continue; }
-      rows.push({ productCode, itemCode: text(row[design]) || productCode, invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), exportDate: toDate(row[planDate], fallbackDate), note: `Nhập kế hoạch Excel${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
     }
   }
   if (!rows.length) warnings.push("Không có dòng hợp lệ để nhập; hãy kiểm tra sheet và nhà máy E.");
-  return { sheetName: sheet.name, rows, skipped, warnings };
+  return { sheetName: sheet.name, rows, scheduleRows: kind === "people" ? scheduleRows : undefined, skipped, warnings };
 }
 
-export async function importPeople(rows: PersonImportRow[], groupId: string, shiftId: string): Promise<{ created: number; updated: number }> {
+export async function importPeople(rows: PersonImportRow[], groupId: string, shiftId: string, schedules: ScheduleImportRow[] = []): Promise<{ created: number; updated: number; scheduled: number }> {
   const db = getDb(); const existing = await db.employees.toArray(); const byCode = new Map(existing.map((item) => [item.code, item])); let created = 0; let updated = 0;
   for (const row of rows) {
     const old = byCode.get(row.code); const note = [row.position && `Vị trí: ${row.position}`, row.phone && `Điện thoại: ${row.phone}`].filter(Boolean).join(" · ");
     if (old) { await db.employees.update(old.id, { name: row.name, groupId, shiftId, serialNumber: row.code, note, updatedAt: Date.now() }); updated++; }
     else { await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId, shiftId, status: "ACTIVE", role: "USER", note }); created++; }
   }
-  await writeAudit({ action: "IMPORT", module: "employees", recordId: "excel", newValue: { created, updated } }); return { created, updated };
+  const employees = await db.employees.toArray();
+  const employeeByCode = new Map(employees.map((item) => [item.code, item]));
+  const existingSchedules = await db.workSchedules.toArray();
+  const scheduleByKey = new Map(existingSchedules.map((item) => [`${item.employeeId}|${item.date}`, item]));
+  const scheduleRowsToSave: WorkSchedule[] = [];
+  for (const schedule of schedules) {
+    const employee = employeeByCode.get(schedule.code);
+    if (!employee) continue;
+    const now = Date.now();
+    const old = scheduleByKey.get(`${employee.id}|${schedule.date}`);
+    scheduleRowsToSave.push({ id: old?.id ?? `${employee.id}-${schedule.date}`, employeeId: employee.id, date: schedule.date, shiftCode: schedule.shiftCode, source: "Lịch làm việc Excel", createdAt: old?.createdAt ?? now, updatedAt: now });
+  }
+  if (scheduleRowsToSave.length) await db.workSchedules.bulkPut(scheduleRowsToSave);
+  const scheduled = scheduleRowsToSave.length;
+  await writeAudit({ action: "IMPORT", module: "employees", recordId: "excel", newValue: { created, updated, scheduled } }); return { created, updated, scheduled };
 }
 
 export async function importData(rows: DataImportRow[]): Promise<{ created: number; updated: number }> {
@@ -170,9 +319,24 @@ export async function importData(rows: DataImportRow[]): Promise<{ created: numb
 }
 
 export async function importExport(rows: ExportImportRow[]): Promise<{ created: number; updated: number }> {
-  const existing = await getDb().goodsItems.toArray(); let created = 0; let updated = 0;
-  for (const row of rows) { const old = existing.find((item) => item.productCode === row.productCode && item.invoice === row.invoice && item.lot === row.lot && item.exportDate === row.exportDate); await upsertGoods({ ...row, status: "WAITING" as GoodsStatus, id: old?.id }); old ? updated++ : created++; }
-  await writeAudit({ action: "IMPORT", module: "goodsItems", recordId: "excel", newValue: { created, updated } }); return { created, updated };
+  const db = getDb();
+  const existing = await db.goodsItems.toArray();
+  const keyOf = (item: Pick<GoodsItem, "sourceKind" | "invoice" | "exportDate">) => `${item.sourceKind ?? ""}|${item.invoice}|${item.exportDate}`;
+  const uniqueRows = [...new Map(rows.map((row) => [keyOf(row), row])).values()];
+  const existingByKey = new Map(existing.map((item) => [keyOf(item), item]));
+  // Bản cũ chưa lưu nguồn SEA/AIR: vẫn ghép theo invoice + ngày để tránh tạo trùng.
+  const legacyByInvoiceDate = new Map(existing.map((item) => [`${item.invoice}|${item.exportDate}`, item]));
+  let created = 0; let updated = 0; const now = Date.now();
+  const toSave: GoodsItem[] = uniqueRows.map((row) => {
+    const old = existingByKey.get(keyOf(row)) ?? legacyByInvoiceDate.get(`${row.invoice}|${row.exportDate}`);
+    old ? updated++ : created++;
+    return { ...row, id: old?.id ?? nid(), createdAt: old?.createdAt ?? now, updatedAt: now };
+  });
+  await db.transaction("rw", db.goodsItems, db.auditLogs, async () => {
+    if (toSave.length) await db.goodsItems.bulkPut(toSave);
+    await writeAudit({ action: "IMPORT", module: "goodsItems", recordId: "excel", newValue: { created, updated } });
+  });
+  return { created, updated };
 }
 
 export async function importOt(rows: OtImportRow[], employees: Employee[], date: string, shiftId: string): Promise<{ created: number; skipped: number }> {

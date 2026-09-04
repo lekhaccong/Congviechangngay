@@ -19,6 +19,7 @@ function PersonDetail() {
   const { id } = Route.useParams();
   const nav = useNavigate();
   const role = useAppStore((s) => s.role);
+  const date = useAppStore((s) => s.selectedDate);
   const person = useRow(() => getDb().employees.get(id), [id]);
   const groups = useRows(() => getDb().groups.toArray());
   const shifts = useRows(() => getDb().shifts.toArray());
@@ -27,6 +28,7 @@ function PersonDetail() {
     [id],
   );
   const ots = useRows(() => getDb().overtimes.where("employeeId").equals(id).toArray(), [id]);
+  const schedules = useRows(() => getDb().workSchedules.where("employeeId").equals(id).sortBy("date"), [id]);
   const [edit, setEdit] = useState(false);
   if (!person) return <p className="text-muted">Không tìm thấy nhân sự.</p>;
   const g = groups.find((x) => x.id === person.groupId);
@@ -55,6 +57,18 @@ function PersonDetail() {
           <Item k="SBD" v={person.serialNumber || "—"} />
           <Item k="Ghi chú" v={person.note || "—"} />
         </dl>
+      </section>
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-muted">Lịch ca từ {date}</h2>
+        <div className="grid grid-cols-4 gap-2 rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
+          {schedules.filter((item) => item.date >= date).slice(0, 12).map((item) => (
+            <div key={item.id} className="rounded-md bg-surface-2 p-2 text-center">
+              <p className="text-xs text-muted">{item.date.slice(5)}</p>
+              <p className="font-mono font-semibold">{item.shiftCode}</p>
+            </div>
+          ))}
+          {schedules.filter((item) => item.date >= date).length === 0 ? <p className="col-span-4 text-sm text-muted">Chưa nhập lịch ca</p> : null}
+        </div>
       </section>
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted">Chấm công gần đây</h2>

@@ -146,8 +146,8 @@ function GoodsPage() {
               <li key={d.id}>
                 <Link to="/goods/export/$id" params={{ id: d.id }} className="flex items-center justify-between rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
                   <div>
-                    <p className="font-medium">{d.productCode}</p>
-                    <p className="font-mono text-xs text-muted">{d.invoice} · {d.lot}</p>
+                    <p className="font-medium">{d.invoice}</p>
+                    <p className="font-mono text-xs text-muted">{d.sourceKind === "AIR" ? "AIR" : d.destination || d.productCode} · {d.exportDate} · SL {d.quantity}</p>
                   </div>
                   <GoodsBadge status={d.status} />
                 </Link>

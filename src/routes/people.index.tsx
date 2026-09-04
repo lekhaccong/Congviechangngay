@@ -20,9 +20,11 @@ export const Route = createFileRoute("/people/")({ component: PeoplePage });
 
 function PeoplePage() {
   const role = useAppStore((s) => s.role);
+  const date = useAppStore((s) => s.selectedDate);
   const people = useRows(() => getDb().employees.orderBy("code").toArray());
   const groups = useRows(() => getDb().groups.orderBy("order").toArray());
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
+  const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
   const [groupFilter, setGroupFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -94,6 +96,7 @@ function PeoplePage() {
           {filtered.map((p) => {
             const g = groups.find((x) => x.id === p.groupId);
             const s = shifts.find((x) => x.id === p.shiftId);
+            const schedule = schedules.find((x) => x.employeeId === p.id);
             return (
               <li key={p.id} className="flex items-center">
                 {selecting ? (
@@ -109,7 +112,7 @@ function PeoplePage() {
                   <div className="min-w-0">
                     <p className="font-medium">{p.name}</p>
                     <p className="font-mono text-xs text-muted">
-                      {p.code} · {g?.name} · {s?.name} · {ROLE_LABEL[p.role]}
+                      {p.code} · {g?.name} · {schedule ? `Ca ${schedule.shiftCode}` : s?.name} · {ROLE_LABEL[p.role]}
                     </p>
                   </div>
                   <EmployeeBadge status={p.status} />

@@ -1,6 +1,7 @@
 import { getDb } from "./db";
 import { nid } from "./ids";
 import { computeOtMinutes } from "./ot";
+import { computeOtRate } from "./ot-rate";
 import { applyProgress, refreshTaskStatus } from "./progress";
 import { useAppStore } from "./store";
 import { formatDate, shiftWindow } from "./time";
@@ -87,7 +88,8 @@ export async function updateEmployee(id: string, patch: Partial<Employee>) {
 export async function deleteEmployee(id: string) {
   const db = getDb();
   const old = await db.employees.get(id);
-  await db.transaction("rw", db.employees, db.auditLogs, async () => {
+  await db.transaction("rw", db.employees, db.workSchedules, db.auditLogs, async () => {
+    await db.workSchedules.where("employeeId").equals(id).delete();
     await db.employees.delete(id);
     await writeAudit({ action: "DELETE", module: "employees", recordId: id, oldValue: old });
   });
@@ -427,7 +429,9 @@ export async function createOvertime(data: Omit<Overtime, "id" | "totalMinutes" 
     endTime: data.endTime,
     roundMinutes: c.otRound,
   });
-  const row: Overtime = { ...data, id: nid(), totalMinutes, createdAt: Date.now() };
+  const schedule = await db.workSchedules.where("[employeeId+date]").equals([data.employeeId, data.date]).first();
+  const rate = computeOtRate(data.date, data.startTime, data.endTime, schedule?.shiftCode);
+  const row: Overtime = { ...data, ratePercent: rate.ratePercent, rateLabel: rate.rateLabel, id: nid(), totalMinutes, createdAt: Date.now() };
   await db.transaction("rw", db.overtimes, db.auditLogs, async () => {
     await db.overtimes.add(row);
     await writeAudit({ action: "OT_CREATE", module: "overtimes", recordId: row.id, newValue: row });
@@ -446,6 +450,9 @@ export async function updateOvertime(id: string, patch: Partial<Overtime>) {
     endTime: merged.endTime,
     roundMinutes: c.otRound,
   });
+  const schedule = await db.workSchedules.where("[employeeId+date]").equals([merged.employeeId, merged.date]).first();
+  const rate = computeOtRate(merged.date, merged.startTime, merged.endTime, schedule?.shiftCode);
+  Object.assign(merged, { ratePercent: rate.ratePercent, rateLabel: rate.rateLabel });
   await db.overtimes.put(merged);
   await writeAudit({ action: "UPDATE", module: "overtimes", recordId: id, oldValue: old, newValue: merged });
   return merged;
