@@ -13,6 +13,7 @@ import {
   type ImportPreview,
 } from "@/lib/cvp/excel-import";
 import type { Employee, Group, Shift } from "@/lib/cvp/types";
+import { planningWeek } from "@/lib/cvp/planning-week";
 
 const TITLES: Record<ExcelImportKind, string> = { people: "Nhập nhân sự từ Excel", data: "Nhập DATA từ Excel", export: "Nhập kế hoạch xuất hàng", air: "Nhập kế hoạch Hàng Air", sea: "Nhập kế hoạch Hàng xuất thường", ot: "Nhập OT từ Excel" };
 
@@ -25,6 +26,7 @@ export function ExcelImportDialog({
   const [loading, setLoading] = useState(false);
   const [groupId, setGroupId] = useState(groups[0]?.id ?? "");
   const [targetShiftId, setTargetShiftId] = useState(shiftId || shifts[0]?.id || "");
+  const week = date ? planningWeek(date) : null;
 
   useEffect(() => {
     if (!groupId && groups[0]) setGroupId(groups[0].id);
@@ -59,7 +61,7 @@ export function ExcelImportDialog({
   const values = (row: Record<string, unknown>) => kind === "people" ? [row.code, row.name, row.position] : kind === "ot" ? [row.code, row.name, `${row.startTime}–${row.endTime}`] : kind === "data" ? [row.productCode, row.invoice, row.lot] : [row.invoice, row.quantity, row.exportDate];
   return <Dialog open={open} onClose={onClose} title={TITLES[kind]} wide>
     <div className="space-y-3">
-      <p className="text-sm text-muted">Chọn file .xlsx hoặc .xlsm. Hệ thống đọc file ngay trên thiết bị và hiển thị bản xem trước trước khi lưu.</p>
+      <p className="text-sm text-muted">{(kind === "air" || kind === "sea") && week ? `Chỉ lấy kế hoạch tuần ${week.start}–${week.end}. ` : ""}Chọn file .xlsx hoặc .xlsm. Hệ thống đọc file ngay trên thiết bị và hiển thị bản xem trước trước khi lưu.</p>
       {kind === "people" ? <div className="grid grid-cols-2 gap-2">
         <Field label="Nhóm nhận dữ liệu"><NativeSelect value={groupId} onChange={(e) => setGroupId(e.target.value)}>{groups.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</NativeSelect></Field>
         <Field label="Ca mặc định"><NativeSelect value={targetShiftId} onChange={(e) => setTargetShiftId(e.target.value)}>{shifts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</NativeSelect></Field>

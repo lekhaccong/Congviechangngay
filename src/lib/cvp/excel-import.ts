@@ -3,6 +3,7 @@ import { getDb } from "./db";
 import { createEmployee, createOvertime, normalizeEmployeeCode, upsertDataItem, writeAudit } from "./repo";
 import { cleanShiftCode } from "./business-shifts";
 import { nid } from "./ids";
+import { isInPlanningWeek, planningWeek } from "./planning-week";
 import type { BusinessShiftCode, DataStatus, Employee, GoodsItem, GoodsStatus, Group, Shift, WorkSchedule } from "./types";
 
 export type ExcelImportKind = "people" | "data" | "export" | "air" | "sea" | "ot";
@@ -137,7 +138,7 @@ function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
     if (!invoice) continue;
     const factory = text(row?.[factoryCol]);
     if (normalized(factory) !== "e") { skipped++; continue; }
-    if (!currentDate) { skipped++; continue; }
+    if (!currentDate || !isInPlanningWeek(currentDate, fallbackDate)) { skipped++; continue; }
     const quantity = numberValue(row?.[13]) || numberValue(row?.[totalFallback]);
     const box = numberValue(row?.[14]) || numberValue(row?.[boxFallback]);
     rows.push({
@@ -157,7 +158,8 @@ function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
       warehouse: factory,
     });
   }
-  return { sheetName: sheet.name, rows, skipped, warnings: rows.length ? [] : ["Không tìm thấy dòng kế hoạch Air hợp lệ."] };
+  const week = planningWeek(fallbackDate);
+  return { sheetName: sheet.name, rows, skipped, warnings: rows.length ? [] : [`Không có Hàng Air nhà máy E trong tuần ${week.start}–${week.end}.`] };
 }
 
 function parseSeaExport(sheets: Sheet[], fallbackDate: string): ImportPreview {
@@ -183,6 +185,7 @@ function parseSeaExport(sheets: Sheet[], fallbackDate: string): ImportPreview {
   };
   let skipped = 0;
   for (const [weekStart, { sheet }] of chosen) {
+    if (!isInPlanningWeek(weekStart, fallbackDate)) continue;
     const headerIndex = headerRow(sheet, ["invoice", "so kien"]);
     const headers = sheet.rows[headerIndex] ?? [];
     const dayCol = findColumn(headers, ["ngay"]);
@@ -228,7 +231,8 @@ function parseSeaExport(sheets: Sheet[], fallbackDate: string): ImportPreview {
       });
     }
   }
-  return { sheetName: `${chosen.size} sheet tuần`, rows, skipped, warnings: rows.length ? [] : ["Không tìm thấy dòng kế hoạch xuất hợp lệ."] };
+  const week = planningWeek(fallbackDate);
+  return { sheetName: `Tuần ${week.start}–${week.end}`, rows, skipped, warnings: rows.length ? [] : [`Không có kế hoạch xuất thường trong tuần ${week.start}–${week.end}.`] };
 }
 
 function parseExportWorkbook(sheets: Sheet[], fallbackDate: string): ImportPreview {
