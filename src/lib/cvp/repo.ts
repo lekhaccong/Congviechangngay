@@ -775,6 +775,35 @@ export async function closeLot(lotId: string, note: string, photoId: string | nu
   return closure;
 }
 
+/** Chốt Invoice chỉ khi toàn bộ dòng Hàng xuất thường đã hoàn thành. Hàng Air bị loại trừ. */
+export async function closeExportInvoice(invoice: string, note = "") {
+  const db = getDb();
+  const normalized = invoice.trim();
+  const rows = await db.goodsItems.where("invoice").equals(normalized).toArray();
+  const exportRows = rows.filter((row) => row.sourceKind !== "AIR");
+  if (!exportRows.length) throw new Error("Invoice này chưa có kế hoạch Hàng xuất thường");
+  const pending = exportRows.filter((row) => row.status !== "COMPLETED");
+  if (pending.length) throw new Error(`Còn ${pending.length}/${exportRows.length} dòng Hàng xuất chưa hoàn thành`);
+
+  const existing = (await db.lots.where("invoice").equals(normalized).toArray()).find((lot) => lot.lotCode === normalized);
+  if (existing?.status === "CLOSED") throw new Error("Invoice đã được chốt");
+  const c = ctx();
+  const now = Date.now();
+  const lot: Lot = existing ?? {
+    id: nid(), lotCode: normalized, invoice: normalized,
+    productCode: [...new Set(exportRows.map((row) => row.productCode).filter(Boolean))].join(", ") || "Hàng xuất",
+    date: c.date, quantity: exportRows.reduce((sum, row) => sum + row.quantity, 0), status: "OPEN", createdAt: now,
+  };
+  const closure = { id: nid(), lotId: lot.id, closedBy: c.userId, closedAt: now, note, photoId: null };
+  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, async () => {
+    if (existing) await db.lots.update(lot.id, { status: "CLOSED" });
+    else await db.lots.add({ ...lot, status: "CLOSED" });
+    await db.lotClosures.add(closure);
+    await writeAudit({ action: "LOT_CLOSE", module: "lots", recordId: lot.id, oldValue: existing, newValue: { status: "CLOSED", invoice: normalized, closedBy: c.userName, note } });
+  });
+  return closure;
+}
+
 export async function createThreeS(date: string, shiftId: string) {
   const row: ThreeSRecord = {
     id: nid(),

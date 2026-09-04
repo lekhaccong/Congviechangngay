@@ -10,7 +10,7 @@ import { Field, Input, Textarea } from "@/components/ui/input";
 import { useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { useAppStore } from "@/lib/cvp/store";
-import { deleteDataItems, deleteLots, upsertDataItem, upsertGoods, upsertLot } from "@/lib/cvp/repo";
+import { closeExportInvoice, deleteDataItems, deleteLots, upsertDataItem, upsertGoods, upsertLot } from "@/lib/cvp/repo";
 import {
   DATA_STATUS_LABEL,
   GOODS_STATUS_LABEL,
@@ -47,13 +47,13 @@ function GoodsPage() {
     <div>
       <PageHeader
         title="Hàng"
-        subtitle="DATA · Hàng Air · Hàng xuất · Lot"
+        subtitle="DATA · Hàng Air · Hàng xuất · Chốt Invoice"
         action={
           can(role, "manage_goods") ? (
             <div className="flex gap-2">
               {tab === "data" || tab === "lot" ? <Button size="sm" variant="ghost" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? "Hủy" : "Chọn"}</Button> : null}
               {tab !== "lot" ? <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>{tab === "data" ? "Nhập DATA" : tab === "air" ? "Nhập Hàng Air" : "Nhập Hàng xuất"}</Button> : null}
-              <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
+              {tab !== "lot" ? <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button> : null}
             </div>
           ) : null
         }
@@ -61,7 +61,7 @@ function GoodsPage() {
       <div className="mb-3 grid grid-cols-2 gap-2">
         {(["data", "air", "export", "lot"] as const).map((t) => (
           <Button key={t} variant={tab === t ? "default" : "secondary"} onClick={() => { setTab(t); setStatus("all"); setSelecting(false); setSelected(new Set()); }}>
-            {t === "data" ? "DATA" : t === "air" ? "Hàng Air" : t === "export" ? "Hàng xuất" : "Lot"}
+            {t === "data" ? "DATA" : t === "air" ? "Hàng Air" : t === "export" ? "Hàng xuất" : "Chốt Invoice"}
           </Button>
         ))}
       </div>
@@ -82,7 +82,7 @@ function GoodsPage() {
             variant="danger"
             disabled={!selected.size}
             onClick={async () => {
-              const label = tab === "data" ? "DATA" : "Lot (kể cả Lot đã chốt)";
+              const label = tab === "data" ? "DATA" : "Invoice đã chốt";
               if (!confirm(`Xóa ${selected.size} ${label} đã chọn?`)) return;
               if (tab === "data") await deleteDataItems([...selected]);
               else await deleteLots([...selected]);
@@ -160,27 +160,36 @@ function GoodsPage() {
       ) : null}
 
       {tab === "lot" ? (
-        lotsShown.length === 0 ? (
-          <EmptyState title="Chưa có Lot" />
+        (() => {
+          const invoices = [...new Map(seaShown.filter((item) => item.invoice.trim()).map((item) => [item.invoice, item])).values()];
+          const shown = invoices.filter((item) => {
+            const closed = lots.some((lot) => lot.invoice === item.invoice && lot.lotCode === item.invoice && lot.status === "CLOSED");
+            return status === "all" || (status === "CLOSED" ? closed : !closed);
+          });
+          return shown.length === 0 ? (
+          <EmptyState title="Chưa có Invoice Hàng xuất" hint="Hàng Air không xuất hiện trong mục Chốt Invoice." />
         ) : (
           <ul className="space-y-2">
-            {lotsShown.map((d) => (
-              <li key={d.id} className="flex items-center rounded-xl bg-surface shadow-[var(--shadow-border)]">
-                {selecting ? <input type="checkbox" className="ml-4 size-5 accent-primary" checked={selected.has(d.id)} onChange={() => setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; })} aria-label={`Chọn Lot ${d.lotCode}`} /> : null}
-                <Link to="/goods/lot/$id" params={{ id: d.id }} className="flex flex-1 items-center justify-between p-4" onClick={(event) => { if (!selecting) return; event.preventDefault(); setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; }); }}>
+            {shown.map((d) => {
+              const rows = seaShown.filter((item) => item.invoice === d.invoice);
+              const closedLot = lots.find((lot) => lot.invoice === d.invoice && lot.lotCode === d.invoice && lot.status === "CLOSED");
+              const complete = rows.every((item) => item.status === "COMPLETED");
+              return <li key={d.invoice} className="flex items-center rounded-xl bg-surface shadow-[var(--shadow-border)]">
+                <div className="flex flex-1 items-center justify-between p-4">
                   <div>
-                    <p className="font-medium">{d.lotCode}</p>
-                    <p className="font-mono text-xs text-muted">{d.invoice} · {d.productCode} · SL {d.quantity}</p>
+                    <p className="font-medium">{d.invoice}</p>
+                    <p className="font-mono text-xs text-muted">Hàng xuất · {rows.filter((item) => item.status === "COMPLETED").length}/{rows.length} dòng hoàn thành</p>
                   </div>
-                  <LotBadge status={d.status} />
-                </Link>
-              </li>
-            ))}
+                  {closedLot ? <LotBadge status="CLOSED" /> : <Button size="sm" disabled={!complete} onClick={async () => { try { await closeExportInvoice(d.invoice); toast.success(`Đã chốt Invoice ${d.invoice}`); } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể chốt Invoice"); } }}>Chốt Invoice</Button>}
+                </div>
+              </li>;
+            })}
           </ul>
-        )
+        );
+        })()
       ) : null}
 
-      <AddGoodsDialog open={open} onClose={() => setOpen(false)} tab={tab} date={date} />
+      {tab !== "lot" ? <AddGoodsDialog open={open} onClose={() => setOpen(false)} tab={tab} date={date} /> : null}
       {tab !== "lot" ? <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind={tab === "air" ? "air" : tab === "export" ? "sea" : "data"} date={date} shiftId="" /> : null}
     </div>
   );
