@@ -21,6 +21,7 @@ import {
 } from "@/lib/cvp/types";
 import { can } from "@/lib/cvp/permissions";
 import { ExcelImportDialog } from "@/components/cvp/excel-import-dialog";
+import { formatDate, formatDateVi } from "@/lib/cvp/time";
 
 export const Route = createFileRoute("/goods/")({ component: GoodsPage });
 
@@ -33,9 +34,20 @@ function GoodsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const data = useRows(() => getDb().dataItems.reverse().sortBy("createdAt"));
-  const goods = useRows(() => getDb().goodsItems.reverse().sortBy("createdAt"));
-  const lots = useRows(() => getDb().lots.reverse().sortBy("createdAt"));
+  // Tất cả bảng nghiệp vụ Hàng dùng chung ngày đang chọn ở đầu ứng dụng.
+  // DATA lưu ngày dưới dạng timestamp; Hàng Air/Hàng xuất và Invoice lưu YYYY-MM-DD.
+  const data = useRows(
+    () => getDb().dataItems.filter((item) => formatDate(new Date(item.receivedAt)) === date).reverse().sortBy("createdAt"),
+    [date],
+  );
+  const goods = useRows(
+    () => getDb().goodsItems.where("exportDate").equals(date).reverse().sortBy("createdAt"),
+    [date],
+  );
+  const lots = useRows(
+    () => getDb().lots.where("date").equals(date).reverse().sortBy("createdAt"),
+    [date],
+  );
 
   const dataShown = data.filter((d) => status === "all" || d.status === status);
   const goodsShown = goods.filter((d) => status === "all" || d.status === status);
@@ -47,7 +59,7 @@ function GoodsPage() {
     <div>
       <PageHeader
         title="Hàng"
-        subtitle="DATA · Hàng Air · Hàng xuất · Chốt Invoice"
+        subtitle={`${formatDateVi(date)} · DATA · Hàng Air · Hàng xuất · Chốt Invoice`}
         action={
           can(role, "manage_goods") ? (
             <div className="flex gap-2">
@@ -120,7 +132,7 @@ function GoodsPage() {
 
       {tab === "data" ? (
         dataShown.length === 0 ? (
-          <EmptyState title="Chưa có DATA" />
+          <EmptyState title={`Chưa có DATA ngày ${formatDateVi(date)}`} />
         ) : (
           <ul className="space-y-2">
             {dataShown.map((d) => (
@@ -141,7 +153,7 @@ function GoodsPage() {
 
       {tab === "air" || tab === "export" ? (
         (tab === "air" ? airShown : seaShown).length === 0 ? (
-          <EmptyState title={tab === "air" ? "Chưa có Hàng Air" : "Chưa có hàng xuất thường"} />
+          <EmptyState title={tab === "air" ? `Chưa có Hàng Air ngày ${formatDateVi(date)}` : `Chưa có hàng xuất ngày ${formatDateVi(date)}`} />
         ) : (
           <ul className="space-y-2">
             {(tab === "air" ? airShown : seaShown).map((d) => (
@@ -167,7 +179,7 @@ function GoodsPage() {
             return status === "all" || (status === "CLOSED" ? closed : !closed);
           });
           return shown.length === 0 ? (
-          <EmptyState title="Chưa có Invoice Hàng xuất" hint="Hàng Air không xuất hiện trong mục Chốt Invoice." />
+          <EmptyState title={`Chưa có Invoice Hàng xuất ngày ${formatDateVi(date)}`} hint="Hàng Air không xuất hiện trong mục Chốt Invoice." />
         ) : (
           <ul className="space-y-2">
             {shown.map((d) => {
