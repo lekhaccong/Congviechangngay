@@ -22,7 +22,7 @@ function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Cài đặt" subtitle={`CongViecPro ${APP_VERSION}`} />
+      <PageHeader title="Cài đặt" subtitle={`Quản lý kho E ${APP_VERSION}`} />
       <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <h2 className="font-medium">Người đang thao tác</h2>
         <Field label="Tài khoản trên máy này">
@@ -89,7 +89,7 @@ function SettingsPage() {
           onClick={async () => {
             try {
             const ok = await requestNotifyPermission();
-            toast[ok ? "success" : "error"](ok ? "Đã bật thông báo" : "Hãy bật quyền thông báo trong Cài đặt điện thoại → Ứng dụng → CongViecPro.");
+            toast[ok ? "success" : "error"](ok ? "Đã bật thông báo" : "Hãy bật quyền thông báo trong Cài đặt điện thoại → Ứng dụng → Quản lý kho E.");
             } catch { toast.error("Không bật được thông báo. Hãy kiểm tra cài đặt điện thoại."); }
           }}
         >
@@ -100,6 +100,21 @@ function SettingsPage() {
           catch (error) { toast.error(error instanceof Error ? error.message : "Không gửi được thông báo thử"); }
         }}>Gửi thông báo thử</Button>
         <p className="text-xs text-muted">Android nhắc công việc trước hạn 30 phút và khi đến hạn kể cả khi rời app. DATA thiếu và lot chưa chốt được kiểm tra khi app mở. Thông báo có thể chậm nếu máy tiết kiệm pin; buộc dừng app sẽ ngừng nhắc cho đến khi mở lại.</p>
+      </section>
+      <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+        <h2 className="font-medium">Thông tin ứng dụng</h2>
+        <p className="text-sm text-muted">Quản lý kho E · phiên bản {APP_VERSION}</p>
+        <p className="text-sm text-muted">Nhà phát triển: <span className="font-medium text-fg">Lê Khắc Công</span></p>
+      </section>
+      <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+        <h2 className="font-medium">Hướng dẫn sử dụng nhanh</h2>
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted">
+          <li>Chọn đúng ngày và ca làm ở đầu màn hình trước khi thao tác.</li>
+          <li>Vào <span className="text-fg">Nhân sự</span> để nhập người, lịch làm và chấm công; khai OT khi phát sinh.</li>
+          <li>Vào <span className="text-fg">Hàng</span> để nhập DATA, Hàng Air hoặc Hàng xuất bằng Excel; Hàng Air và Hàng xuất được theo dõi riêng.</li>
+          <li>Trong <span className="text-fg">Chốt Invoice</span>, chỉ Invoice Hàng xuất có mọi dòng hoàn thành mới chốt được.</li>
+          <li>Cuối ca dùng <span className="text-fg">Bàn giao</span> và <span className="text-fg">Backup</span> để lưu, chia sẻ hoặc khôi phục dữ liệu.</li>
+        </ol>
       </section>
       <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <h2 className="font-medium">Dữ liệu</h2>

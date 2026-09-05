@@ -2,7 +2,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "pro.congviec.app",
-  appName: "CongViecPro",
+  appName: "Quản lý kho E",
   webDir: "native-www",
   android: {
     allowMixedContent: true,

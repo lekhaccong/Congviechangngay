@@ -58,7 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-30 border-b border-border bg-bg/95 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">CongViecPro</p>
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Quản lý kho E</p>
             <p className="truncate text-sm">
               {formatDateVi(date)}
               {shift ? ` · ${shift.name} ${shift.startTime}–${shift.endTime}` : ""}

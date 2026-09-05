@@ -91,11 +91,11 @@ try {
   let strings = await read(stringsPath);
   strings = strings.replace(
     /<string name="app_name">[^<]*<\/string>/,
-    `<string name="app_name">CongViecPro</string>`,
+    `<string name="app_name">Quản lý kho E</string>`,
   );
   strings = strings.replace(
     /<string name="title_activity_main">[^<]*<\/string>/,
-    `<string name="title_activity_main">CongViecPro</string>`,
+    `<string name="title_activity_main">Quản lý kho E</string>`,
   );
   strings = strings.replace(
     /<string name="package_name">[^<]*<\/string>/,
