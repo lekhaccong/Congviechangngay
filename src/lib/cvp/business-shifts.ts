@@ -2,7 +2,7 @@ import type { BusinessShiftCode, ScheduleAdjustment, Shift, WorkSchedule } from 
 
 export const BUSINESS_SHIFT_RULES: Record<BusinessShiftCode, { label: string; startTime: string; endTime: string; dayOff: boolean; working: boolean }> = {
   M: { label: "Ca sáng", startTime: "06:00", endTime: "14:00", dayOff: false, working: true },
-  M1: { label: "Ca hành chính", startTime: "08:00", endTime: "17:00", dayOff: false, working: true },
+  M1: { label: "Ca 06:00–15:00", startTime: "06:00", endTime: "15:00", dayOff: false, working: true },
   X5: { label: "Ca 07:00–16:00", startTime: "07:00", endTime: "16:00", dayOff: false, working: true },
   X: { label: "Ca 08:00–17:00", startTime: "08:00", endTime: "17:00", dayOff: false, working: true },
   X3: { label: "Ca 09:00–18:00", startTime: "09:00", endTime: "18:00", dayOff: false, working: true },
