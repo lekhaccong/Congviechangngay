@@ -71,7 +71,7 @@ function PeoplePage() {
         ))}
         {can(role, "manage_people") ? (
           <Button variant="ghost" size="sm" onClick={() => setGroupOpen(true)}>
-            Nhóm
+            Nhóm/Vị trí
           </Button>
         ) : null}
       </div>
@@ -151,9 +151,9 @@ function PeoplePage() {
           setOpen(false);
         }}
       />
-      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind="people" date="" shiftId={shifts[0]?.id ?? ""} groups={groups} shifts={shifts} />
+      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind="people" date="" shiftId={shifts[0]?.id ?? ""} shifts={shifts} />
 
-      <Dialog open={groupOpen} onClose={() => setGroupOpen(false)} title="Nhóm">
+      <Dialog open={groupOpen} onClose={() => setGroupOpen(false)} title="Nhóm/Vị trí">
         <ul className="mb-4 space-y-2">
           {groups.map((g) => (
             <li key={g.id} className="flex gap-2">
