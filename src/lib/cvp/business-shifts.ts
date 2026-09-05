@@ -14,6 +14,10 @@ export const BUSINESS_SHIFT_RULES: Record<BusinessShiftCode, { label: string; st
   SA: { label: "Ngày nghỉ 14:00–22:00", startTime: "14:00", endTime: "22:00", dayOff: true, working: true },
   E: { label: "Đêm ngày nghỉ", startTime: "22:00", endTime: "06:00", dayOff: true, working: true },
   P: { label: "Nghỉ phép", startTime: "00:00", endTime: "00:00", dayOff: false, working: false },
+  CK: { label: "Nghỉ nghĩa vụ", startTime: "00:00", endTime: "00:00", dayOff: false, working: false },
+  RO: { label: "Nghỉ không lý do", startTime: "00:00", endTime: "00:00", dayOff: false, working: false },
+  TS: { label: "Nghỉ thai sản", startTime: "00:00", endTime: "00:00", dayOff: false, working: false },
+  O: { label: "Nghỉ ốm", startTime: "00:00", endTime: "00:00", dayOff: false, working: false },
 };
 
 export function cleanShiftCode(value: unknown): BusinessShiftCode | null {
@@ -22,7 +26,7 @@ export function cleanShiftCode(value: unknown): BusinessShiftCode | null {
 }
 
 export function scheduleMatchesManagerShift(code: BusinessShiftCode, shift?: Shift | null): boolean {
-  if (!shift || code === "P") return false;
+  if (!shift || !BUSINESS_SHIFT_RULES[code].working) return false;
   if (shift.order === 1) return code === "M" || code === "SM";
   if (shift.order === 2) return ["M1", "X", "X5", "X3", "SM1", "S"].includes(code);
   if (shift.order === 3) return code === "A" || code === "SA";

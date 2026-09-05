@@ -24,6 +24,7 @@ export function PersonForm({
     shiftId: string;
     status: EmployeeStatus;
     role: Role;
+    phone?: string;
     note: string;
   };
   onSave: (data: {
@@ -34,6 +35,7 @@ export function PersonForm({
     shiftId: string;
     status: EmployeeStatus;
     role: Role;
+    phone: string;
     note: string;
   }) => Promise<void>;
 }) {
@@ -44,6 +46,7 @@ export function PersonForm({
   const [shiftId, setShiftId] = useState("");
   const [status, setStatus] = useState<EmployeeStatus>("ACTIVE");
   const [role, setRole] = useState<Role>("USER");
+  const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -55,6 +58,7 @@ export function PersonForm({
     setShiftId(initial?.shiftId ?? shifts[0]?.id ?? "");
     setStatus(initial?.status ?? "ACTIVE");
     setRole(initial?.role ?? "USER");
+    setPhone(initial?.phone ?? "");
     setNote(initial?.note ?? "");
   }, [open, initial, groups, shifts]);
 
@@ -64,7 +68,7 @@ export function PersonForm({
         className="space-y-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          await onSave({ code, name, serialNumber, groupId, shiftId, status, role, note });
+          await onSave({ code, name, serialNumber, groupId, shiftId, status, role, phone, note });
         }}
       >
         <Field label="Mã nhân viên">
@@ -85,6 +89,7 @@ export function PersonForm({
             ))}
           </NativeSelect>
         </Field>
+        <Field label="Số điện thoại"><Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></Field>
         <Field label="Ca">
           <NativeSelect value={shiftId} onChange={(e) => setShiftId(e.target.value)}>
             {shifts.map((s) => (

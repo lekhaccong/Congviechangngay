@@ -158,6 +158,17 @@ export class CvpDB extends Dexie {
       settings: "key",
       handovers: "id, date, shiftId",
     });
+
+    // Chuyển tên bốn ca cũ, giữ nguyên id để toàn bộ chấm công/OT/task cũ vẫn liên kết đúng.
+    this.version(5).stores({
+      employees: "id, code, groupId, shiftId, status, name", groups: "id, order", shifts: "id, order",
+      workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]", scheduleAdjustments: "id, batchId, date, employeeId, status, [employeeId+date]",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]", workBlocks: "id, order", tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId", checklistItems: "id, checklistId, taskId, threeSId, done", photos: "id, ownerModule, ownerId, createdAt", blobs: "id", auditLogs: "id, timestamp, module, recordId, date, shiftId, action", overtimes: "id, employeeId, date, shiftId", amhs: "id, employeeId, date, shiftId, status", dataItems: "id, productCode, invoice, lot, status", goodsItems: "id, invoice, productCode, lot, status, exportDate", lots: "id, lotCode, invoice, productCode, status, date", lotClosures: "id, lotId, closedAt", threeS: "id, date, shiftId", abnormalities: "id, status, detectedAt, linkedModule, linkedId", notifications: "id, dueAt, read", settings: "key", handovers: "id, date, shiftId",
+    }).upgrade(async (tx) => {
+      const names: Record<string, string> = { "Ca 1": "M", "Ca 2": "M1", "Ca 3": "A", "Ca 4": "D" };
+      await tx.table("shifts").toCollection().modify((row) => { if (names[row.name]) row.name = names[row.name]; });
+    });
   }
 }
 

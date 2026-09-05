@@ -9,6 +9,7 @@ import { useRow, useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { deleteEmployee, updateEmployee } from "@/lib/cvp/repo";
 import { effectiveShiftCode } from "@/lib/cvp/business-shifts";
+import { BUSINESS_SHIFT_RULES } from "@/lib/cvp/business-shifts";
 import { can } from "@/lib/cvp/permissions";
 import { useAppStore } from "@/lib/cvp/store";
 import { ROLE_LABEL } from "@/lib/cvp/types";
@@ -35,6 +36,8 @@ function PersonDetail() {
   if (!person) return <p className="text-muted">Không tìm thấy nhân sự.</p>;
   const g = groups.find((x) => x.id === person.groupId);
   const s = shifts.find((x) => x.id === person.shiftId);
+  const todaySchedule = schedules.find((item) => item.date === date);
+  const actualToday = effectiveShiftCode(todaySchedule, adjustments);
 
   return (
     <div className="space-y-4">
@@ -53,12 +56,17 @@ function PersonDetail() {
       <section className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <Item k="Nhóm" v={g?.name ?? "—"} />
-          <Item k="Ca" v={s ? `${s.name} ${s.startTime}–${s.endTime}` : "—"} />
+          <Item k="SĐT" v={person.phone || "—"} />
+          <Item k="Ca mặc định" v={s ? `${s.name} ${s.startTime}–${s.endTime}` : "—"} />
           <Item k="Quyền" v={ROLE_LABEL[person.role]} />
           <Item k="Trạng thái" v={<EmployeeBadge status={person.status} />} />
           <Item k="SBD" v={person.serialNumber || "—"} />
           <Item k="Ghi chú" v={person.note || "—"} />
         </dl>
+      </section>
+      <section className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+        <h2 className="mb-3 font-medium">Lịch ngày {date.slice(5)}</h2>
+        {todaySchedule && actualToday ? <dl className="grid grid-cols-2 gap-3 text-sm"><Item k="Ca kế hoạch" v={`${todaySchedule.shiftCode} · ${BUSINESS_SHIFT_RULES[todaySchedule.shiftCode].startTime}–${BUSINESS_SHIFT_RULES[todaySchedule.shiftCode].endTime}`} /><Item k="Ca thực tế" v={`${actualToday} · ${BUSINESS_SHIFT_RULES[actualToday].startTime}–${BUSINESS_SHIFT_RULES[actualToday].endTime}`} /><Item k="Trạng thái" v={actualToday === todaySchedule.shiftCode ? "Theo kế hoạch" : "Đã đổi ca"} /></dl> : <p className="text-sm text-muted">Chưa có lịch Excel cho ngày này.</p>}
       </section>
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted">Lịch ca từ {date}</h2>

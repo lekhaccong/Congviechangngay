@@ -102,6 +102,7 @@ export interface Employee {
   shiftId: string;
   status: EmployeeStatus;
   role: Role;
+  phone?: string;
   note: string;
   sample?: boolean;
   createdAt: number;
@@ -123,7 +124,7 @@ export interface Shift {
   order: number;
 }
 
-export type BusinessShiftCode = "M" | "M1" | "A" | "D" | "X" | "X5" | "X3" | "SM" | "SM1" | "S" | "SA" | "E" | "P";
+export type BusinessShiftCode = "M" | "M1" | "A" | "D" | "X" | "X5" | "X3" | "SM" | "SM1" | "S" | "SA" | "E" | "P" | "CK" | "RO" | "TS" | "O";
 
 export interface WorkSchedule {
   id: string;

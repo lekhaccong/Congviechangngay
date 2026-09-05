@@ -10,7 +10,7 @@ export type ExcelImportKind = "people" | "data" | "export" | "air" | "sea" | "ot
 type Cell = string | number | Date | null;
 type Sheet = { name: string; rows: Cell[][] };
 
-export type PersonImportRow = { code: string; name: string; position: string; phone: string };
+export type PersonImportRow = { code: string; name: string; position: string; phone: string; groupName: string };
 export type ScheduleImportRow = { code: string; date: string; shiftCode: BusinessShiftCode };
 export type DataImportRow = { productCode: string; designCode: string; invoice: string; lot: string; quantity: number; receivedAt: number; status: DataStatus; note: string };
 export type ExportImportRow = { productCode: string; itemCode: string; invoice: string; lot: string; quantity: number; exportDate: string; status: GoodsStatus; note: string; sourceKind: "SEA" | "AIR"; destination: string; confirmation: string; containerCount: number; looseQuantity: string; warehouse: string };
@@ -260,7 +260,7 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const product = column("ma san pham", "ma hang"); const design = column("thiet ke"); const invoice = column("invoice", "invoi", "san pham co the xuat");
   const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const planDate = column("ngay pc", "ngay xuat", "ngay giao");
   const factory = column("nha may"); const actualDate = column("thuc te", "nhan qa"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
-  const position = column("vi tri"); const phone = column("dien thoai");
+  const position = column("vi tri"); const phone = column("dien thoai"); const group = column("nhom", "to", "group");
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
   const scheduleRows: ScheduleImportRow[] = [];
   const sheetDate = sheet.rows.slice(0, 10).flat().find((cell): cell is Date => cell instanceof Date);
@@ -270,7 +270,7 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
     if (kind === "people") {
       const employeeCode = codeValue(row[code]); const employeeName = text(row[name]);
       if (!employeeCode || !employeeName) { skipped++; continue; }
-      rows.push({ code: employeeCode, name: employeeName, position: text(row[position]), phone: text(row[phone]) });
+      rows.push({ code: employeeCode, name: employeeName, position: text(row[position]), phone: text(row[phone >= 0 ? phone : 4]), groupName: text(row[group >= 0 ? group : 3]) });
       for (let columnIndex = 0; columnIndex < headers.length; columnIndex++) {
         if (!(headers[columnIndex] instanceof Date)) continue;
         const shiftCode = cleanShiftCode(row[columnIndex]);
@@ -299,9 +299,16 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
   const db = getDb(); const existing = await db.employees.toArray(); const byCode = new Map(existing.map((item) => [normalizeEmployeeCode(item.code), item])); let created = 0; let updated = 0;
   const uniqueRows = [...new Map(rows.map((row) => [normalizeEmployeeCode(row.code), { ...row, code: normalizeEmployeeCode(row.code) }])).values()];
   for (const row of uniqueRows) {
-    const old = byCode.get(row.code); const note = [row.position && `Vị trí: ${row.position}`, row.phone && `Điện thoại: ${row.phone}`].filter(Boolean).join(" · ");
-    if (old) { await db.employees.update(old.id, { name: row.name, groupId, shiftId, serialNumber: row.code, note, updatedAt: Date.now() }); updated++; }
-    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId, shiftId, status: "ACTIVE", role: "USER", note }); byCode.set(row.code, createdRow); created++; }
+    const groupName = row.groupName.trim();
+    let resolvedGroupId = groupId;
+    if (groupName) {
+      let found = await db.groups.filter((item) => item.name.trim().toLowerCase() === groupName.toLowerCase()).first();
+      if (!found) { found = { id: nid(), name: groupName, order: (await db.groups.count()) + 1 }; await db.groups.add(found); }
+      resolvedGroupId = found.id;
+    }
+    const old = byCode.get(row.code); const note = [row.position && `Vị trí: ${row.position}`].filter(Boolean).join(" · ");
+    if (old) { await db.employees.update(old.id, { name: row.name, groupId: resolvedGroupId, shiftId, serialNumber: row.code, phone: row.phone, note, updatedAt: Date.now() }); updated++; }
+    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId: resolvedGroupId, shiftId, status: "ACTIVE", role: "USER", phone: row.phone, note }); byCode.set(row.code, createdRow); created++; }
   }
   const employees = await db.employees.toArray();
   const employeeByCode = new Map(employees.map((item) => [normalizeEmployeeCode(item.code), item]));

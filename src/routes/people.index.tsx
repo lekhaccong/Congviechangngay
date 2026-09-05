@@ -16,6 +16,7 @@ import { useAppStore } from "@/lib/cvp/store";
 import { createEmployee, createGroup, deleteEmployees, deleteGroup, renameGroup } from "@/lib/cvp/repo";
 import { ROLE_LABEL } from "@/lib/cvp/types";
 import { effectiveShiftCode } from "@/lib/cvp/business-shifts";
+import { BUSINESS_SHIFT_RULES } from "@/lib/cvp/business-shifts";
 
 export const Route = createFileRoute("/people/")({ component: PeoplePage });
 
@@ -28,13 +29,21 @@ function PeoplePage() {
   const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
   const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).toArray(), [date]);
   const [groupFilter, setGroupFilter] = useState("all");
+  const [shiftFilter, setShiftFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupOpen, setGroupOpen] = useState(false);
   const [newGroup, setNewGroup] = useState("");
-  const filtered = people.filter((p) => groupFilter === "all" || p.groupId === groupFilter);
+  const filtered = people.filter((p) => {
+    if (groupFilter !== "all" && p.groupId !== groupFilter) return false;
+    const schedule = schedules.find((item) => item.employeeId === p.id);
+    const code = effectiveShiftCode(schedule, adjustments);
+    if (shiftFilter === "all") return true;
+    if (shiftFilter === "REST") return !!code && !BUSINESS_SHIFT_RULES[code].working;
+    return code === shiftFilter;
+  });
 
   return (
     <div>
@@ -65,6 +74,11 @@ function PeoplePage() {
             Nhóm
           </Button>
         ) : null}
+      </div>
+      <div className="mb-3 flex gap-2 overflow-x-auto">
+        <FilterChip active={shiftFilter === "all"} onClick={() => setShiftFilter("all")}>Tất cả ca</FilterChip>
+        {Object.keys(BUSINESS_SHIFT_RULES).filter((code) => BUSINESS_SHIFT_RULES[code as keyof typeof BUSINESS_SHIFT_RULES].working).map((code) => <FilterChip key={code} active={shiftFilter === code} onClick={() => setShiftFilter(code)}>{code}</FilterChip>)}
+        <FilterChip active={shiftFilter === "REST"} onClick={() => setShiftFilter("REST")}>Nghỉ</FilterChip>
       </div>
       {selecting ? (
         <div className="mb-3 flex items-center justify-between gap-2 rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]">
@@ -115,7 +129,7 @@ function PeoplePage() {
                   <div className="min-w-0">
                     <p className="font-medium">{p.name}</p>
                     <p className="font-mono text-xs text-muted">
-                      {p.code} · {g?.name} · {actualShiftCode ? `Ca ${actualShiftCode}${actualShiftCode !== schedule?.shiftCode ? " (đã đổi)" : ""}` : s?.name} · {ROLE_LABEL[p.role]}
+                      {p.code} · {g?.name} · {actualShiftCode ? `${schedule?.shiftCode ?? actualShiftCode}${actualShiftCode !== schedule?.shiftCode ? ` → ${actualShiftCode}` : ""}` : s?.name} · {ROLE_LABEL[p.role]}
                     </p>
                   </div>
                   <EmployeeBadge status={p.status} />

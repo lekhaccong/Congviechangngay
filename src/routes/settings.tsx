@@ -70,7 +70,7 @@ function SettingsPage() {
           </NativeSelect>
         </Field>
         <p className="text-xs text-muted">
-          Ca 4 22:00–06:00 qua ngày. OT 22:00→01:00 = 3 giờ.
+          Ca D/E 22:00–06:00 qua ngày. OT 22:00→01:00 = 3 giờ.
         </p>
         <ul className="text-sm text-muted">
           {shifts.map((s) => (
