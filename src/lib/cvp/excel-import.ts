@@ -264,13 +264,20 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
   const scheduleRows: ScheduleImportRow[] = [];
   const sheetDate = sheet.rows.slice(0, 10).flat().find((cell): cell is Date => cell instanceof Date);
+  let personnelTableStarted = false;
   for (const row of sheet.rows.slice(headerIndex + 1)) {
     if (!row?.some((cell) => text(cell))) continue;
     if (factory >= 0 && text(row[factory]) && normalized(row[factory]) !== "e") continue;
     if (kind === "people") {
       const employeeCode = codeValue(row[code]); const employeeName = text(row[name]);
+      // Sheet "Lịch làm việc" còn có các bảng phụ lặp lại SBD ở phía dưới.
+      // Dừng tại dòng trống đầu tiên sau bảng nhân sự để cột D của bảng phụ
+      // (ví dụ giá trị "2") không ghi đè Vị trí/Nhóm thật ở dòng 4–23.
+      if (personnelTableStarted && !employeeCode && !employeeName) break;
       if (!employeeCode || !employeeName) { skipped++; continue; }
-      rows.push({ code: employeeCode, name: employeeName, position: text(row[position]), phone: text(row[phone >= 0 ? phone : 4]), groupName: text(row[group >= 0 ? group : 3]) });
+      personnelTableStarted = true;
+      const positionName = text(row[position >= 0 ? position : 3]).trim();
+      rows.push({ code: employeeCode, name: employeeName, position: positionName, phone: text(row[phone >= 0 ? phone : 4]), groupName: positionName });
       for (let columnIndex = 0; columnIndex < headers.length; columnIndex++) {
         if (!(headers[columnIndex] instanceof Date)) continue;
         const shiftCode = cleanShiftCode(row[columnIndex]);
@@ -297,7 +304,12 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
 
 export async function importPeople(rows: PersonImportRow[], groupId: string, shiftId: string, schedules: ScheduleImportRow[] = []): Promise<{ created: number; updated: number; scheduled: number }> {
   const db = getDb(); const existing = await db.employees.toArray(); const byCode = new Map(existing.map((item) => [normalizeEmployeeCode(item.code), item])); let created = 0; let updated = 0;
-  const uniqueRows = [...new Map(rows.map((row) => [normalizeEmployeeCode(row.code), { ...row, code: normalizeEmployeeCode(row.code) }])).values()];
+  const uniqueByCode = new Map<string, PersonImportRow>();
+  for (const row of rows) {
+    const normalizedCode = normalizeEmployeeCode(row.code);
+    if (!uniqueByCode.has(normalizedCode)) uniqueByCode.set(normalizedCode, { ...row, code: normalizedCode });
+  }
+  const uniqueRows = [...uniqueByCode.values()];
   for (const row of uniqueRows) {
     const groupName = row.groupName.trim();
     let resolvedGroupId = groupId;
@@ -310,6 +322,11 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
     if (old) { await db.employees.update(old.id, { name: row.name, groupId: resolvedGroupId, shiftId, serialNumber: row.code, phone: row.phone, note, updatedAt: Date.now() }); updated++; }
     else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId: resolvedGroupId, shiftId, status: "ACTIVE", role: "USER", phone: row.phone, note }); byCode.set(row.code, createdRow); created++; }
   }
+  // Sau khi mọi nhân sự đã được chuyển sang nhóm từ cột D, xóa các nhóm rỗng
+  // cũ như "Nhóm 1", "Nhóm 2" hoặc "2" để màn Nhóm phản ánh đúng file Excel.
+  const usedGroupIds = new Set((await db.employees.toArray()).map((item) => item.groupId));
+  const obsoleteGroups = (await db.groups.toArray()).filter((item) => !usedGroupIds.has(item.id));
+  if (obsoleteGroups.length) await db.groups.bulkDelete(obsoleteGroups.map((item) => item.id));
   const employees = await db.employees.toArray();
   const employeeByCode = new Map(employees.map((item) => [normalizeEmployeeCode(item.code), item]));
   const existingSchedules = await db.workSchedules.toArray();
