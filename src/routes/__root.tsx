@@ -8,6 +8,7 @@ import { registerServiceWorker } from "@/lib/pwa/register-service-worker";
 if (typeof window !== "undefined") registerServiceWorker();
 
 const APP_NAME = "Quản lý kho E";
+const BASE_URL = import.meta.env.BASE_URL;
 
 export const Route = createRootRoute({
   head: () => ({
@@ -25,10 +26,10 @@ export const Route = createRootRoute({
       },
     ],
     links: [
-      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "icon", type: "image/svg+xml", href: `${BASE_URL}favicon.svg` },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "manifest", href: `${BASE_URL}manifest.webmanifest` },
+      { rel: "apple-touch-icon", href: `${BASE_URL}__grok/icon-180.png` },
     ],
   }),
   component: () => (

@@ -1,0 +1,20 @@
+{
+  "name": "Quản lý kho E",
+  "short_name": "Kho E",
+  "description": "Quản lý nhân sự, lịch làm việc và chấm công theo hướng offline-first.",
+  "id": "./",
+  "start_url": "./#/",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0c0d0f",
+  "theme_color": "#0c0d0f",
+  "lang": "vi",
+  "icons": [
+    {
+      "src": "./__grok/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
