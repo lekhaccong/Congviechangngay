@@ -4,7 +4,9 @@ import type { Attendance, Employee, ScheduleAdjustment, SyncEntityType, WorkSche
 export async function toCloud(entityType: SyncEntityType, value: unknown): Promise<Record<string, unknown>> {
   if (entityType === "employees") {
     const row = value as Employee; const group = await getDb().groups.get(row.groupId);
-    return { id: row.id, sbd: row.code, name: row.name, group_name: group?.name ?? "", phone: row.phone ?? "", status: row.status, note: row.note, local_role: row.role, local_shift_id: row.shiftId, client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
+    const legacyRole = row.role as string;
+    const localRole = legacyRole === "LEADER" ? "MANAGER" : legacyRole === "USER" ? "EMPLOYEE" : ["ADMIN", "MANAGER", "EMPLOYEE", "VIEWER"].includes(legacyRole) ? legacyRole : "EMPLOYEE";
+    return { id: row.id, sbd: row.code, name: row.name, group_name: group?.name ?? "", phone: row.phone ?? "", status: row.status, note: row.note, local_role: localRole, local_shift_id: row.shiftId, client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
   }
   if (entityType === "work_schedules") {
     const row = value as WorkSchedule;
