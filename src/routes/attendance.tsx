@@ -25,7 +25,9 @@ import type { BusinessShiftCode } from "@/lib/cvp/types";
 export const Route = createFileRoute("/attendance")({ component: AttendancePage });
 
 const SHIFT_CODES = Object.keys(BUSINESS_SHIFT_RULES).filter((code) => code !== "P") as BusinessShiftCode[];
-const FALLBACK_BY_ORDER: Record<number, BusinessShiftCode> = { 1: "M", 2: "M1", 3: "A", 4: "D" };
+const FALLBACK_BY_ORDER: Record<number, BusinessShiftCode> = {
+  1: "M", 2: "M1", 3: "X5", 4: "X", 5: "X3", 6: "A", 7: "D",
+};
 
 function AttendancePage() {
   const date = useAppStore((s) => s.selectedDate);
