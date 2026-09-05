@@ -167,7 +167,10 @@ export function datesInRange(from: string, to: string): string[] {
 
 export const DEFAULT_SHIFTS: Omit<Shift, "id">[] = [
   { name: "M", startTime: "06:00", endTime: "14:00", crossesMidnight: false, order: 1 },
-  { name: "M1", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 2 },
-  { name: "A", startTime: "14:00", endTime: "22:00", crossesMidnight: false, order: 3 },
-  { name: "D", startTime: "22:00", endTime: "06:00", crossesMidnight: true, order: 4 },
+  { name: "M1", startTime: "06:00", endTime: "15:00", crossesMidnight: false, order: 2 },
+  { name: "X5", startTime: "07:00", endTime: "16:00", crossesMidnight: false, order: 3 },
+  { name: "X", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 4 },
+  { name: "X3", startTime: "09:00", endTime: "18:00", crossesMidnight: false, order: 5 },
+  { name: "A", startTime: "14:00", endTime: "22:00", crossesMidnight: false, order: 6 },
+  { name: "D", startTime: "22:00", endTime: "06:00", crossesMidnight: true, order: 7 },
 ];
