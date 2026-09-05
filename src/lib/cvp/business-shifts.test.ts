@@ -20,7 +20,7 @@ test("hoàn tác trả nhân sự về lịch Excel gốc", () => {
 test("bảy ca quản lý khớp riêng theo đúng thứ tự", () => {
   const definitions: Shift[] = [
     { id: "shift-1", name: "M", startTime: "06:00", endTime: "14:00", crossesMidnight: false, order: 1 },
-    { id: "shift-2", name: "M1", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 2 },
+    { id: "shift-2", name: "M1", startTime: "06:00", endTime: "15:00", crossesMidnight: false, order: 2 },
     { id: "shift-x5", name: "X5", startTime: "07:00", endTime: "16:00", crossesMidnight: false, order: 3 },
     { id: "shift-x", name: "X", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 4 },
     { id: "shift-x3", name: "X3", startTime: "09:00", endTime: "18:00", crossesMidnight: false, order: 5 },
