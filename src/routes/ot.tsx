@@ -12,11 +12,15 @@ import { useAppStore } from "@/lib/cvp/store";
 import { createAmh, createOvertime, deleteAmh, deleteOvertime, updateAmh } from "@/lib/cvp/repo";
 import { computeOtHours } from "@/lib/cvp/ot";
 import { formatHours } from "@/lib/cvp/time";
-import { OT_TYPES, type AmhStatus } from "@/lib/cvp/types";
+import { OT_TYPES, type AmhStatus, type BusinessShiftCode } from "@/lib/cvp/types";
 import { can } from "@/lib/cvp/permissions";
 import { ExcelImportDialog } from "@/components/cvp/excel-import-dialog";
+import { effectiveShiftCode, scheduleMatchesManagerShift } from "@/lib/cvp/business-shifts";
+import { calculateEmployeeAmh } from "@/lib/cvp/amh";
 
 export const Route = createFileRoute("/ot")({ component: OtPage });
+
+const SHIFT_CODE_BY_ORDER: Record<number, BusinessShiftCode> = { 1: "M", 2: "M1", 3: "X5", 4: "X", 5: "X3", 6: "A", 7: "D" };
 
 function OtPage() {
   const date = useAppStore((s) => s.selectedDate);
@@ -24,14 +28,38 @@ function OtPage() {
   const role = useAppStore((s) => s.role);
   const round = useAppStore((s) => s.otRoundMinutes);
   const people = useRows(() => getDb().employees.toArray());
-  const ots = useRows(() => getDb().overtimes.toArray());
-  const amhs = useRows(() => getDb().amhs.toArray());
+  const ots = useRows(() => getDb().overtimes.where("date").equals(date).toArray(), [date]);
+  const amhs = useRows(() => getDb().amhs.where("date").equals(date).toArray(), [date]);
+  const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
+  const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).toArray(), [date]);
+  const attendance = useRows(() => getDb().attendance.where("date").equals(date).toArray(), [date]);
   const [tab, setTab] = useState<"ot" | "amh">("ot");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
-  const todayOt = ots.filter((o) => o.date === date);
-  const totalMin = ots.reduce((s, o) => s + o.totalMinutes, 0);
+  const selectedShift = shifts.find((shift) => shift.id === shiftId);
+  const visibleOt = ots.filter((o) => !shiftId || o.shiftId === shiftId);
+  const scheduleByEmployee = new Map(schedules.map((item) => [item.employeeId, item]));
+  const effectiveCodeByEmployee = new Map(people.map((person) => [person.id, effectiveShiftCode(scheduleByEmployee.get(person.id), adjustments)]));
+  const amhPeople = schedules.length
+    ? people.filter((person) => {
+        const code = effectiveCodeByEmployee.get(person.id);
+        return person.status === "ACTIVE" && code && scheduleMatchesManagerShift(code, selectedShift);
+      })
+    : people.filter((person) => person.status === "ACTIVE" && (!shiftId || person.shiftId === shiftId));
+  const amhRows = amhPeople.map((person) => {
+    const code = effectiveCodeByEmployee.get(person.id) ?? SHIFT_CODE_BY_ORDER[selectedShift?.order ?? 2] ?? "M1";
+    const record = attendance.find((item) => item.employeeId === person.id && (!shiftId || item.shiftId === shiftId));
+    const calculation = calculateEmployeeAmh({
+      date,
+      shiftCode: code,
+      attendance: record,
+      overtimes: ots.filter((item) => item.employeeId === person.id && (!shiftId || item.shiftId === shiftId)),
+      adjustments: amhs.filter((item) => item.employeeId === person.id && (!shiftId || item.shiftId === shiftId)),
+    });
+    return { person, code, calculation };
+  });
+  const totalAmhMinutes = amhRows.reduce((sum, item) => sum + item.calculation.totalMinutes, 0);
 
   return (
     <div>
@@ -48,9 +76,9 @@ function OtPage() {
         }
       />
       <div className="mb-4 grid grid-cols-3 gap-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
-        <Stat label="Hôm nay" value={`${formatHours(todayOt.reduce((s, o) => s + o.totalMinutes, 0))}h`} />
-        <Stat label="Tổng" value={`${formatHours(totalMin)}h`} />
-        <Stat label="Phiếu AMH" value={amhs.length} />
+        <Stat label="OT đã xác nhận" value={`${formatHours(visibleOt.filter((o) => o.attendanceConfirmedAt).reduce((s, o) => s + o.totalMinutes, 0))}h`} />
+        <Stat label="AMH ngày/ca" value={`${formatHours(totalAmhMinutes)}h`} />
+        <Stat label="Nhân sự" value={amhRows.length} />
       </div>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <Button variant={tab === "ot" ? "default" : "secondary"} onClick={() => setTab("ot")}>
@@ -62,7 +90,7 @@ function OtPage() {
       </div>
       {tab === "ot" ? (
         <ul className="divide-y divide-border overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-          {ots.map((o) => {
+          {visibleOt.map((o) => {
             const who = people.find((p) => p.id === o.employeeId);
             return (
               <li key={o.id} className="flex items-center justify-between gap-3 px-4 py-3">
@@ -84,40 +112,33 @@ function OtPage() {
               </li>
             );
           })}
-          {ots.length === 0 ? <li className="px-4 py-6 text-sm text-muted">Chưa có OT</li> : null}
+          {visibleOt.length === 0 ? <li className="px-4 py-6 text-sm text-muted">Chưa có OT trong ngày/ca này</li> : null}
         </ul>
       ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-          {amhs.map((a) => {
-            const who = people.find((p) => p.id === a.employeeId);
+        <div className="space-y-3">
+          <p className="text-xs text-muted">AMH = giờ ca thực tế đã xác nhận + OT đã xác nhận + điều chỉnh đã duyệt.</p>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
+          {amhRows.map(({ person, code, calculation }) => {
+            const stateLabel = calculation.state === "CONFIRMED" ? "Đã xác nhận" : calculation.state === "ABSENT" ? "Nghỉ" : calculation.state === "OPEN" ? "Chưa chấm ra" : "Chưa chấm công";
             return (
-              <li key={a.id} className="px-4 py-3">
+              <li key={person.id} className="px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium">{who?.name ?? "—"}</p>
+                    <p className="font-medium">{person.name}</p>
                     <p className="text-xs text-muted">
-                      {a.date} · {a.hours}h · {a.note}
+                      {date} · ca {code} · {stateLabel}
                     </p>
                   </div>
-                  <AmhBadge status={a.status} />
+                  <p className="font-mono text-lg tabular-nums">{formatHours(calculation.totalMinutes)}h</p>
                 </div>
-                {can(role, "manage_ot") ? (
-                  <div className="mt-2 flex gap-2">
-                    {(["APPROVED", "REJECTED", "DONE"] as AmhStatus[]).map((st) => (
-                      <Button key={st} size="sm" variant="secondary" onClick={() => void updateAmh(a.id, { status: st })}>
-                        {st === "APPROVED" ? "Duyệt" : st === "REJECTED" ? "Từ chối" : "Xong"}
-                      </Button>
-                    ))}
-                    <Button size="sm" variant="danger" onClick={() => void deleteAmh(a.id)}>
-                      Xóa
-                    </Button>
-                  </div>
-                ) : null}
+                <p className="mt-1 text-xs text-muted">Ca {formatHours(calculation.regularMinutes)}h · OT {formatHours(calculation.overtimeMinutes)}h · Điều chỉnh {formatHours(calculation.adjustmentMinutes)}h</p>
               </li>
             );
           })}
-          {amhs.length === 0 ? <li className="px-4 py-6 text-sm text-muted">Chưa có AMH</li> : null}
-        </ul>
+          {amhRows.length === 0 ? <li className="px-4 py-6 text-sm text-muted">Không có nhân sự theo lịch thực tế trong ngày/ca này</li> : null}
+          </ul>
+          {amhs.filter((a) => !shiftId || a.shiftId === shiftId).length ? <div><p className="mb-2 text-sm font-medium">Phiếu điều chỉnh AMH</p><ul className="space-y-2">{amhs.filter((a) => !shiftId || a.shiftId === shiftId).map((a) => { const who = people.find((p) => p.id === a.employeeId); return <li key={a.id} className="rounded-xl bg-surface p-3 shadow-[var(--shadow-border)]"><div className="flex items-center justify-between"><div><p className="font-medium">{who?.name ?? "—"}</p><p className="text-xs text-muted">{a.hours}h · {a.note || "Không ghi chú"}</p></div><AmhBadge status={a.status} /></div>{can(role, "manage_ot") ? <div className="mt-2 flex gap-2">{(["APPROVED", "REJECTED", "DONE"] as AmhStatus[]).map((st) => <Button key={st} size="sm" variant="secondary" onClick={() => void updateAmh(a.id, { status: st })}>{st === "APPROVED" ? "Duyệt" : st === "REJECTED" ? "Từ chối" : "Xong"}</Button>)}<Button size="sm" variant="danger" onClick={() => void deleteAmh(a.id)}>Xóa</Button></div> : null}</li>; })}</ul></div> : null}
+        </div>
       )}
       <DeclareDialog
         open={open}
@@ -158,7 +179,7 @@ function DeclareDialog({
   const hours = computeOtHours({ startTime, endTime, roundMinutes: round });
 
   return (
-    <Dialog open={open} onClose={onClose} title={tab === "ot" ? "Khai OT" : "Khai AMH"}>
+    <Dialog open={open} onClose={onClose} title={tab === "ot" ? "Khai OT" : "Điều chỉnh AMH"}>
       <form
         className="space-y-3"
         onSubmit={async (e) => {
