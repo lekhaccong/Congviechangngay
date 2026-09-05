@@ -19,11 +19,14 @@ import type {
   WorkBlock,
 } from "./types";
 
-const SHIFT_DEFS: Omit<Shift, "id">[] = [
-  { name: "M", startTime: "06:00", endTime: "14:00", crossesMidnight: false, order: 1 },
-  { name: "M1", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 2 },
-  { name: "A", startTime: "14:00", endTime: "22:00", crossesMidnight: false, order: 3 },
-  { name: "D", startTime: "22:00", endTime: "06:00", crossesMidnight: true, order: 4 },
+const SHIFT_DEFS: Shift[] = [
+  { id: "shift-1", name: "M", startTime: "06:00", endTime: "14:00", crossesMidnight: false, order: 1 },
+  { id: "shift-2", name: "M1", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 2 },
+  { id: "shift-x5", name: "X5", startTime: "07:00", endTime: "16:00", crossesMidnight: false, order: 3 },
+  { id: "shift-x", name: "X", startTime: "08:00", endTime: "17:00", crossesMidnight: false, order: 4 },
+  { id: "shift-x3", name: "X3", startTime: "09:00", endTime: "18:00", crossesMidnight: false, order: 5 },
+  { id: "shift-3", name: "A", startTime: "14:00", endTime: "22:00", crossesMidnight: false, order: 6 },
+  { id: "shift-4", name: "D", startTime: "22:00", endTime: "06:00", crossesMidnight: true, order: 7 },
 ];
 
 const BLOCK_NAMES = [
@@ -51,10 +54,7 @@ export async function seedCatalog(db: CvpDB): Promise<{
   groups: Group[];
   blocks: WorkBlock[];
 }> {
-  const shifts: Shift[] = SHIFT_DEFS.map((s, i) => ({
-    ...s,
-    id: `shift-${i + 1}`,
-  }));
+  const shifts: Shift[] = SHIFT_DEFS.map((shift) => ({ ...shift }));
   const groups: Group[] = [
     { id: "group-1", name: "Nhóm 1", order: 1 },
     { id: "group-2", name: "Nhóm 2", order: 2 },
@@ -103,10 +103,10 @@ export async function seedSampleData(db: CvpDB): Promise<void> {
   const shifts = await db.shifts.orderBy("order").toArray();
   const groups = await db.groups.orderBy("order").toArray();
   const blocks = await db.workBlocks.orderBy("order").toArray();
-  const ca1 = shifts.find((s) => s.order === 1)?.id ?? "shift-1";
-  const ca2 = shifts.find((s) => s.order === 2)?.id ?? "shift-2";
-  const ca3 = shifts.find((s) => s.order === 3)?.id ?? "shift-3";
-  const ca4 = shifts.find((s) => s.order === 4)?.id ?? "shift-4";
+  const ca1 = shifts.find((s) => s.name === "M")?.id ?? "shift-1";
+  const ca2 = shifts.find((s) => s.name === "M1")?.id ?? "shift-2";
+  const ca3 = shifts.find((s) => s.name === "A")?.id ?? "shift-3";
+  const ca4 = shifts.find((s) => s.name === "D")?.id ?? "shift-4";
   const g1 = groups[0]?.id ?? "group-1";
   const g2 = groups[1]?.id ?? "group-2";
 
