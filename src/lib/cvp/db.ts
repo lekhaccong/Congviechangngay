@@ -187,6 +187,16 @@ export class CvpDB extends Dexie {
         { id: "shift-4", name: "D", startTime: "22:00", endTime: "06:00", crossesMidnight: true, order: 7 },
       ]);
     });
+
+    // Sửa giờ M1 cho cả dữ liệu đã tồn tại mà không thay id/liên kết nghiệp vụ.
+    this.version(7).stores({
+      employees: "id, code, groupId, shiftId, status, name", groups: "id, order", shifts: "id, order",
+      workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]", scheduleAdjustments: "id, batchId, date, employeeId, status, [employeeId+date]",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]", workBlocks: "id, order", tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId", checklistItems: "id, checklistId, taskId, threeSId, done", photos: "id, ownerModule, ownerId, createdAt", blobs: "id", auditLogs: "id, timestamp, module, recordId, date, shiftId, action", overtimes: "id, employeeId, date, shiftId", amhs: "id, employeeId, date, shiftId, status", dataItems: "id, productCode, invoice, lot, status", goodsItems: "id, invoice, productCode, lot, status, exportDate", lots: "id, lotCode, invoice, productCode, status, date", lotClosures: "id, lotId, closedAt", threeS: "id, date, shiftId", abnormalities: "id, status, detectedAt, linkedModule, linkedId", notifications: "id, dueAt, read", settings: "key", handovers: "id, date, shiftId",
+    }).upgrade(async (tx) => {
+      await tx.table("shifts").update("shift-2", { startTime: "06:00", endTime: "15:00" });
+    });
   }
 }
 
