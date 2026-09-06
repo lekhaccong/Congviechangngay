@@ -5,9 +5,12 @@ import { applyCloudRow, toCloud } from "./mapping";
 import { retryDelay } from "./queue";
 import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
+import { App } from "@capacitor/app";
+import type { PluginListenerHandle } from "@capacitor/core";
 
 const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
+let syncInFlight: Promise<void> | null = null;
 
 async function setState(key: string, value: string) { await getDb().syncState.put({ key, value }); }
 
@@ -160,11 +163,48 @@ async function syncNow() {
   } catch (error) { await setState("status", "ERROR"); console.error("[sync]", error); }
 }
 
+/** Coalesce network/resume/realtime signals so a slow connection cannot start overlapping sync passes. */
+export function requestSync(): Promise<void> {
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = syncNow().finally(() => { syncInFlight = null; });
+  return syncInFlight;
+}
+
 export function startSyncEngine(): () => void {
   if (!supabaseConfigured || !supabase) return () => {};
-  const onOnline = () => { void syncNow(); }; const onFocus = () => { if (document.visibilityState === "visible") void syncNow(); };
-  window.addEventListener("online", onOnline); document.addEventListener("visibilitychange", onFocus);
-  channel = supabase.channel("phase1-sync").on("postgres_changes", { event: "*", schema: "public" }, () => { void pullChanges(); }).subscribe();
-  timer = window.setInterval(() => { void syncNow(); }, 60_000); void syncNow();
-  return () => { window.removeEventListener("online", onOnline); document.removeEventListener("visibilitychange", onFocus); if (timer) clearInterval(timer); if (channel && supabase) void supabase.removeChannel(channel); };
+  let nativeResumeListener: PluginListenerHandle | null = null;
+  let stopped = false;
+  const syncWhenVisible = () => {
+    if (document.visibilityState === "visible") void requestSync();
+  };
+  const onOnline = () => { void requestSync(); };
+  const onOffline = () => { void setState("status", "OFFLINE"); };
+
+  window.addEventListener("online", onOnline);
+  window.addEventListener("offline", onOffline);
+  window.addEventListener("focus", syncWhenVisible);
+  window.addEventListener("pageshow", syncWhenVisible);
+  document.addEventListener("visibilitychange", syncWhenVisible);
+  void App.addListener("appStateChange", ({ isActive }) => {
+    if (isActive) void requestSync();
+  }).then((listener) => {
+    if (stopped) void listener.remove();
+    else nativeResumeListener = listener;
+  }).catch(() => { /* Browser/PWA: focus, pageshow and visibilitychange cover resume. */ });
+
+  channel = supabase.channel("phase1-sync").on("postgres_changes", { event: "*", schema: "public" }, () => { void requestSync(); }).subscribe();
+  timer = window.setInterval(() => { void requestSync(); }, 60_000);
+  void requestSync();
+
+  return () => {
+    stopped = true;
+    window.removeEventListener("online", onOnline);
+    window.removeEventListener("offline", onOffline);
+    window.removeEventListener("focus", syncWhenVisible);
+    window.removeEventListener("pageshow", syncWhenVisible);
+    document.removeEventListener("visibilitychange", syncWhenVisible);
+    if (nativeResumeListener) void nativeResumeListener.remove();
+    if (timer) clearInterval(timer);
+    if (channel && supabase) void supabase.removeChannel(channel);
+  };
 }
