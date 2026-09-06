@@ -7,7 +7,7 @@ import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
 import { liveQuery } from "dexie";
 
-const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs", "work_blocks", "checklists", "tasks", "checklist_items"];
+const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs", "work_blocks", "checklists", "tasks", "checklist_items", "abnormalities", "abnormal_photos"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequestedWhileRunning = false;
@@ -111,6 +111,24 @@ async function ensurePhase3Snapshot(): Promise<void> {
   });
 }
 
+async function ensureAbnormalSnapshot(): Promise<void> {
+  const db = getDb();
+  if (await db.syncState.get("abnormalSnapshotQueued")) return;
+  const [abnormalities, photos] = await Promise.all([
+    db.abnormalities.filter((row) => !row.sample).toArray(),
+    db.photos.where("ownerModule").equals("abnormalities").toArray(),
+  ]);
+  const abnormalIds = new Set(abnormalities.map((row) => row.id));
+  const operations = [
+    ...abnormalities.map((row) => makeSyncOperation("abnormalities", row.id, "UPSERT", row)),
+    ...photos.filter((row) => abnormalIds.has(row.ownerId)).map((row) => makeSyncOperation("abnormal_photos", row.id, "UPSERT", row)),
+  ];
+  await db.transaction("rw", db.syncQueue, db.syncState, async () => {
+    if (operations.length) await db.syncQueue.bulkAdd(operations);
+    await db.syncState.put({ key: "abnormalSnapshotQueued", value: String(Date.now()) });
+  });
+}
+
 export async function pushPending(): Promise<void> {
   if (!supabase || running) return;
   running = true; await setState("status", "SYNCING");
@@ -134,9 +152,27 @@ export async function pushPending(): Promise<void> {
           if (deleted.length) {
             const { error } = await supabase.from(entityType).update({ deleted_at: new Date().toISOString() }).in("id", deleted.map((item) => item.entityId));
             if (error) throw error;
+            if (entityType === "abnormal_photos") {
+              const paths = deleted.map((item) => (JSON.parse(item.payload) as { storagePath?: string }).storagePath).filter((path): path is string => Boolean(path));
+              if (paths.length) { const { error: storageError } = await supabase.storage.from("abnormal-photos").remove(paths); if (storageError) throw storageError; }
+            }
           }
           const upserts = batch.filter((item) => item.operation === "UPSERT");
           if (upserts.length) {
+            if (entityType === "abnormal_photos") {
+              const { data: authData, error: authError } = await supabase.auth.getUser();
+              if (authError || !authData.user) throw authError ?? new Error("Phiên đăng nhập đã hết hạn");
+              for (const item of upserts) {
+                const photo = JSON.parse(item.payload) as { id: string; blobId: string; storagePath?: string };
+                const blob = await db.blobs.get(photo.blobId);
+                if (!blob) throw new Error(`Không tìm thấy dữ liệu ảnh ${photo.id}`);
+                photo.storagePath ||= `${authData.user.id}/${photo.id}`;
+                const { error: uploadError } = await supabase.storage.from("abnormal-photos").upload(photo.storagePath, blob.data, { contentType: blob.mime, upsert: true });
+                if (uploadError) throw uploadError;
+                await db.photos.update(photo.id, { storagePath: photo.storagePath });
+                item.payload = JSON.stringify(photo);
+              }
+            }
             const rows = await Promise.all(upserts.map((item) => toCloud(entityType, JSON.parse(item.payload))));
             const { error } = await supabase.from(entityType).upsert(rows, { onConflict: "id" });
             if (error) throw error;
@@ -181,7 +217,7 @@ async function syncNow() {
     await repairLegacyScheduleIds();
     await ensureReferencedEmployeesQueued();
     if (!(await getDb().syncState.get("initialSnapshotQueued"))) await pullChanges();
-    await ensureInitialSnapshot(); await ensurePhase2Snapshot(); await ensurePhase3Snapshot(); await pushPending(); await pullChanges();
+    await ensureInitialSnapshot(); await ensurePhase2Snapshot(); await ensurePhase3Snapshot(); await ensureAbnormalSnapshot(); await pushPending(); await pullChanges();
   } catch (error) {
     await setState("status", navigator.onLine ? "ERROR" : "OFFLINE");
     console.error("[sync]", error);

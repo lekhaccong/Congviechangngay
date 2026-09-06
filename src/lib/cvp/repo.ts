@@ -584,7 +584,7 @@ export async function savePhoto(input: {
   const db = getDb();
   const blobId = nid();
   const photoId = nid();
-  await db.transaction("rw", db.blobs, db.photos, db.auditLogs, async () => {
+  await db.transaction("rw", db.blobs, db.photos, db.auditLogs, db.syncQueue, async () => {
     await db.blobs.add({ id: blobId, mime: input.blob.type || "image/jpeg", data: input.blob, createdAt: Date.now() });
     await db.photos.add({
       id: photoId,
@@ -595,6 +595,10 @@ export async function savePhoto(input: {
       note: input.note ?? "",
       createdAt: Date.now(),
     });
+    if (input.ownerModule === "abnormalities") {
+      const photo = await db.photos.get(photoId);
+      if (photo) await db.syncQueue.add(makeSyncOperation("abnormal_photos", photoId, "UPSERT", photo));
+    }
     await writeAudit({ action: "PHOTO", module: input.ownerModule, recordId: input.ownerId, newValue: { photoId, kind: input.kind } });
   });
   return photoId;
@@ -604,7 +608,8 @@ export async function deletePhoto(id: string) {
   const db = getDb();
   const photo = await db.photos.get(id);
   if (!photo) return;
-  await db.transaction("rw", db.photos, db.blobs, db.auditLogs, async () => {
+  await db.transaction("rw", db.photos, db.blobs, db.auditLogs, db.syncQueue, async () => {
+    if (photo.ownerModule === "abnormalities") await db.syncQueue.add(makeSyncOperation("abnormal_photos", photo.id, "DELETE", photo));
     await db.photos.delete(id);
     await db.blobs.delete(photo.blobId);
     await writeAudit({ action: "DELETE", module: "photos", recordId: id, oldValue: photo });
@@ -880,19 +885,27 @@ export async function createThreeS(date: string, shiftId: string) {
 }
 
 export async function createAbnormal(data: Omit<Abnormality, "id" | "createdAt" | "updatedAt">) {
+  const db = getDb();
   const now = Date.now();
   const row: Abnormality = { ...data, id: nid(), createdAt: now, updatedAt: now };
-  await getDb().abnormalities.add(row);
-  await writeAudit({ action: "CREATE", module: "abnormalities", recordId: row.id, newValue: row });
+  await db.transaction("rw", db.abnormalities, db.auditLogs, db.syncQueue, async () => {
+    await db.abnormalities.add(row);
+    await db.syncQueue.add(makeSyncOperation("abnormalities", row.id, "UPSERT", row));
+    await writeAudit({ action: "CREATE", module: "abnormalities", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
 export async function updateAbnormal(id: string, patch: Partial<Abnormality>) {
-  const old = await getDb().abnormalities.get(id);
+  const db = getDb();
+  const old = await db.abnormalities.get(id);
   if (!old) throw new Error("Không tìm thấy bất thường");
   const next = { ...old, ...patch, id, updatedAt: Date.now() };
-  await getDb().abnormalities.put(next);
-  await writeAudit({ action: "UPDATE", module: "abnormalities", recordId: id, oldValue: old, newValue: next });
+  await db.transaction("rw", db.abnormalities, db.auditLogs, db.syncQueue, async () => {
+    await db.abnormalities.put(next);
+    await db.syncQueue.add(makeSyncOperation("abnormalities", id, "UPSERT", next));
+    await writeAudit({ action: "UPDATE", module: "abnormalities", recordId: id, oldValue: old, newValue: next });
+  });
   return next;
 }
 

@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/cvp/db";
-import type { Amh, Attendance, Checklist, ChecklistItem, Employee, Overtime, ScheduleAdjustment, SyncEntityType, Task, WorkBlock, WorkSchedule } from "@/lib/cvp/types";
+import type { Abnormality, Amh, Attendance, Checklist, ChecklistItem, Employee, Overtime, Photo, ScheduleAdjustment, SyncEntityType, Task, WorkBlock, WorkSchedule } from "@/lib/cvp/types";
 
 export async function toCloud(entityType: SyncEntityType, value: unknown): Promise<Record<string, unknown>> {
   if (entityType === "employees") {
@@ -40,6 +40,14 @@ export async function toCloud(entityType: SyncEntityType, value: unknown): Promi
     const row = value as ChecklistItem;
     return { id: row.id, checklist_id: row.checklistId, task_id: row.taskId, label: row.label, done: row.done, completed_at: row.completedAt ? new Date(row.completedAt).toISOString() : null, completed_by: row.completedBy, note: row.note, sort_order: row.order, deleted_at: null };
   }
+  if (entityType === "abnormalities") {
+    const row = value as Abnormality;
+    return { id: row.id, abnormal_type: row.type, description: row.description, severity: row.severity, detected_by: row.detectedBy, detected_at: new Date(row.detectedAt).toISOString(), handler_id: row.handlerId, deadline: row.deadline ? new Date(row.deadline).toISOString() : null, status: row.status, linked_module: row.linkedModule, linked_id: row.linkedId, client_created_at: new Date(row.createdAt).toISOString(), client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
+  }
+  if (entityType === "abnormal_photos") {
+    const row = value as Photo; const blob = await getDb().blobs.get(row.blobId);
+    return { id: row.id, abnormality_id: row.ownerId, storage_path: row.storagePath, mime_type: blob?.mime ?? "image/jpeg", photo_kind: row.kind, note: row.note, client_created_at: new Date(row.createdAt).toISOString(), deleted_at: null };
+  }
   const row = value as Attendance;
   return { id: row.id, employee_id: row.employeeId, work_date: row.date, manager_shift_id: row.shiftId, actual_shift_code: row.actualShiftCode ?? null, status: row.status, note: row.note, confirmed_at: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null, confirmed_by_name: row.confirmedBy ?? null, check_in: row.checkIn ? new Date(row.checkIn).toISOString() : null, check_out: row.checkOut ? new Date(row.checkOut).toISOString() : null, ot_minutes: row.otMinutes, client_created_at: new Date(row.createdAt).toISOString(), deleted_at: null };
 }
@@ -58,7 +66,9 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
     else if (entityType === "work_blocks") await db.workBlocks.delete(row.id);
     else if (entityType === "checklists") await db.checklists.delete(row.id);
     else if (entityType === "tasks") await db.tasks.delete(row.id);
-    else await db.checklistItems.delete(row.id);
+    else if (entityType === "checklist_items") await db.checklistItems.delete(row.id);
+    else if (entityType === "abnormalities") await db.abnormalities.delete(row.id);
+    else { const photo = await db.photos.get(row.id); await db.photos.delete(row.id); if (photo) await db.blobs.delete(photo.blobId); }
     return;
   }
   if (entityType === "employees") {
@@ -81,7 +91,21 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
     await db.checklists.put({ id: row.id, blockId: row.block_id, name: row.name });
   } else if (entityType === "tasks") {
     await db.tasks.put({ id: row.id, name: row.name, blockId: row.block_id, assigneeId: row.assignee_id ?? "", date: row.work_date, shiftId: row.manager_shift_id, estimatedMinutes: row.estimated_minutes, deadline: millis(row.deadline), reminderTime: millis(row.reminder_time), status: row.status, progress: row.progress, note: row.note ?? "", createdAt: millis(row.client_created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now(), completedAt: millis(row.completed_at) });
-  } else {
+  } else if (entityType === "checklist_items") {
     await db.checklistItems.put({ id: row.id, checklistId: row.checklist_id, taskId: row.task_id, threeSId: null, label: row.label, done: row.done, completedAt: millis(row.completed_at), completedBy: row.completed_by, photoId: null, note: row.note ?? "", order: row.sort_order });
+  } else if (entityType === "abnormalities") {
+    await db.abnormalities.put({ id: row.id, type: row.abnormal_type, description: row.description ?? "", severity: row.severity, detectedBy: row.detected_by ?? "Cloud", detectedAt: millis(row.detected_at) ?? Date.now(), handlerId: row.handler_id, deadline: millis(row.deadline), status: row.status, linkedModule: row.linked_module, linkedId: row.linked_id, createdAt: millis(row.client_created_at) ?? millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
+  } else {
+    const current = await db.photos.get(row.id);
+    if (current && current.storagePath === row.storage_path && await db.blobs.get(current.blobId)) return;
+    const { supabase } = await import("@/lib/supabase/client");
+    if (!supabase) return;
+    const { data, error } = await supabase.storage.from("abnormal-photos").download(row.storage_path);
+    if (error) throw error;
+    const blobId = current?.blobId ?? row.id;
+    await db.transaction("rw", db.photos, db.blobs, async () => {
+      await db.blobs.put({ id: blobId, mime: row.mime_type ?? data.type ?? "image/jpeg", data, createdAt: millis(row.client_created_at) ?? Date.now() });
+      await db.photos.put({ id: row.id, ownerModule: "abnormalities", ownerId: row.abnormality_id, kind: row.photo_kind ?? "Bất thường", blobId, note: row.note ?? "", createdAt: millis(row.client_created_at) ?? millis(row.created_at) ?? Date.now(), storagePath: row.storage_path });
+    });
   }
 }

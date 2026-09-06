@@ -171,7 +171,7 @@ export interface Attendance {
   createdAt: number;
 }
 
-export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance" | "overtimes" | "amhs" | "work_blocks" | "checklists" | "tasks" | "checklist_items";
+export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance" | "overtimes" | "amhs" | "work_blocks" | "checklists" | "tasks" | "checklist_items" | "abnormalities" | "abnormal_photos";
 export type SyncOperationType = "UPSERT" | "DELETE";
 
 export interface SyncOperation {
@@ -253,6 +253,7 @@ export interface Photo {
   blobId: string;
   note: string;
   createdAt: number;
+  storagePath?: string;
 }
 
 export interface BlobRow {
