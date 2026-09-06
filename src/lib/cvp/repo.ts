@@ -434,8 +434,9 @@ export async function confirmAttendanceOvertime(id: string) {
   const db = getDb(); const c = ctx(); const old = await db.overtimes.get(id);
   if (!old) throw new Error("Không tìm thấy OT");
   const next = { ...old, attendanceConfirmedAt: Date.now(), attendanceConfirmedBy: c.userName };
-  await db.transaction("rw", db.overtimes, db.auditLogs, async () => {
+  await db.transaction("rw", db.overtimes, db.auditLogs, db.syncQueue, async () => {
     await db.overtimes.put(next);
+    await db.syncQueue.add(makeSyncOperation("overtimes", next.id, "UPSERT", next));
     await writeAudit({ action: "OT_CONFIRM", module: "overtimes", recordId: id, oldValue: old, newValue: next });
   });
   return next;
@@ -614,8 +615,9 @@ export async function createOvertime(data: Omit<Overtime, "id" | "totalMinutes" 
   const actualShiftCode = await getEffectiveShiftCodeForEmployee(data.employeeId, data.date);
   const rate = computeOtRate(data.date, data.startTime, data.endTime, actualShiftCode);
   const row: Overtime = { ...data, ratePercent: rate.ratePercent, rateLabel: rate.rateLabel, id: nid(), totalMinutes, createdAt: Date.now() };
-  await db.transaction("rw", db.overtimes, db.auditLogs, async () => {
+  await db.transaction("rw", db.overtimes, db.auditLogs, db.syncQueue, async () => {
     await db.overtimes.add(row);
+    await db.syncQueue.add(makeSyncOperation("overtimes", row.id, "UPSERT", row));
     await writeAudit({ action: "OT_CREATE", module: "overtimes", recordId: row.id, newValue: row });
   });
   return row;
@@ -635,21 +637,32 @@ export async function updateOvertime(id: string, patch: Partial<Overtime>) {
   const actualShiftCode = await getEffectiveShiftCodeForEmployee(merged.employeeId, merged.date);
   const rate = computeOtRate(merged.date, merged.startTime, merged.endTime, actualShiftCode);
   Object.assign(merged, { ratePercent: rate.ratePercent, rateLabel: rate.rateLabel });
-  await db.overtimes.put(merged);
-  await writeAudit({ action: "UPDATE", module: "overtimes", recordId: id, oldValue: old, newValue: merged });
+  await db.transaction("rw", db.overtimes, db.auditLogs, db.syncQueue, async () => {
+    await db.overtimes.put(merged);
+    await db.syncQueue.add(makeSyncOperation("overtimes", merged.id, "UPSERT", merged));
+    await writeAudit({ action: "UPDATE", module: "overtimes", recordId: id, oldValue: old, newValue: merged });
+  });
   return merged;
 }
 
 export async function deleteOvertime(id: string) {
   const old = await getDb().overtimes.get(id);
-  await getDb().overtimes.delete(id);
-  await writeAudit({ action: "DELETE", module: "overtimes", recordId: id, oldValue: old });
+  const db = getDb();
+  await db.transaction("rw", db.overtimes, db.auditLogs, db.syncQueue, async () => {
+    await db.overtimes.delete(id);
+    if (old) await db.syncQueue.add(makeSyncOperation("overtimes", id, "DELETE", old));
+    await writeAudit({ action: "DELETE", module: "overtimes", recordId: id, oldValue: old });
+  });
 }
 
 export async function createAmh(data: Omit<Amh, "id" | "createdAt">) {
   const row: Amh = { ...data, id: nid(), createdAt: Date.now() };
-  await getDb().amhs.add(row);
-  await writeAudit({ action: "CREATE", module: "amhs", recordId: row.id, newValue: row });
+  const db = getDb();
+  await db.transaction("rw", db.amhs, db.auditLogs, db.syncQueue, async () => {
+    await db.amhs.add(row);
+    await db.syncQueue.add(makeSyncOperation("amhs", row.id, "UPSERT", row));
+    await writeAudit({ action: "CREATE", module: "amhs", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
@@ -657,15 +670,23 @@ export async function updateAmh(id: string, patch: Partial<Amh>) {
   const old = await getDb().amhs.get(id);
   if (!old) throw new Error("Không tìm thấy AMH");
   const next = { ...old, ...patch, id };
-  await getDb().amhs.put(next);
-  await writeAudit({ action: "UPDATE", module: "amhs", recordId: id, oldValue: old, newValue: next });
+  const db = getDb();
+  await db.transaction("rw", db.amhs, db.auditLogs, db.syncQueue, async () => {
+    await db.amhs.put(next);
+    await db.syncQueue.add(makeSyncOperation("amhs", next.id, "UPSERT", next));
+    await writeAudit({ action: "UPDATE", module: "amhs", recordId: id, oldValue: old, newValue: next });
+  });
   return next;
 }
 
 export async function deleteAmh(id: string) {
   const old = await getDb().amhs.get(id);
-  await getDb().amhs.delete(id);
-  await writeAudit({ action: "DELETE", module: "amhs", recordId: id, oldValue: old });
+  const db = getDb();
+  await db.transaction("rw", db.amhs, db.auditLogs, db.syncQueue, async () => {
+    await db.amhs.delete(id);
+    if (old) await db.syncQueue.add(makeSyncOperation("amhs", id, "DELETE", old));
+    await writeAudit({ action: "DELETE", module: "amhs", recordId: id, oldValue: old });
+  });
 }
 
 export async function upsertDataItem(data: Omit<DataItem, "id" | "createdAt" | "updatedAt" | "completedAt"> & { id?: string }) {

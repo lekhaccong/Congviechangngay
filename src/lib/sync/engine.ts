@@ -7,7 +7,7 @@ import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
 import { liveQuery } from "dexie";
 
-const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance"];
+const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequestedWhileRunning = false;
@@ -88,6 +88,18 @@ async function ensureInitialSnapshot(): Promise<void> {
   });
 }
 
+async function ensurePhase2Snapshot(): Promise<void> {
+  const db = getDb();
+  if (await db.syncState.get("phase2SnapshotQueued")) return;
+  const [overtimes, amhs, employees] = await Promise.all([db.overtimes.filter((row) => !row.sample).toArray(), db.amhs.filter((row) => !row.sample).toArray(), db.employees.filter((row) => !row.sample).toArray()]);
+  const employeeIds = new Set(employees.map((row) => row.id));
+  const operations = [...overtimes.filter((row) => employeeIds.has(row.employeeId)).map((row) => makeSyncOperation("overtimes", row.id, "UPSERT", row)), ...amhs.filter((row) => employeeIds.has(row.employeeId)).map((row) => makeSyncOperation("amhs", row.id, "UPSERT", row))];
+  await db.transaction("rw", db.syncQueue, db.syncState, async () => {
+    if (operations.length) await db.syncQueue.bulkAdd(operations);
+    await db.syncState.put({ key: "phase2SnapshotQueued", value: String(Date.now()) });
+  });
+}
+
 export async function pushPending(): Promise<void> {
   if (!supabase || running) return;
   running = true; await setState("status", "SYNCING");
@@ -158,7 +170,7 @@ async function syncNow() {
     await repairLegacyScheduleIds();
     await ensureReferencedEmployeesQueued();
     if (!(await getDb().syncState.get("initialSnapshotQueued"))) await pullChanges();
-    await ensureInitialSnapshot(); await pushPending(); await pullChanges();
+    await ensureInitialSnapshot(); await ensurePhase2Snapshot(); await pushPending(); await pullChanges();
   } catch (error) {
     await setState("status", navigator.onLine ? "ERROR" : "OFFLINE");
     console.error("[sync]", error);

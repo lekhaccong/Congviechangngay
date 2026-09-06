@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/cvp/db";
-import type { Attendance, Employee, ScheduleAdjustment, SyncEntityType, WorkSchedule } from "@/lib/cvp/types";
+import type { Amh, Attendance, Employee, Overtime, ScheduleAdjustment, SyncEntityType, WorkSchedule } from "@/lib/cvp/types";
 
 export async function toCloud(entityType: SyncEntityType, value: unknown): Promise<Record<string, unknown>> {
   if (entityType === "employees") {
@@ -16,6 +16,14 @@ export async function toCloud(entityType: SyncEntityType, value: unknown): Promi
     const row = value as ScheduleAdjustment;
     return { id: row.id, batch_id: row.batchId, work_date: row.date, employee_id: row.employeeId, original_shift_code: row.originalShiftCode, adjusted_shift_code: row.adjustedShiftCode, kind: row.kind, reason: row.reason, status: row.status, created_by_name: row.createdBy, client_created_at: new Date(row.createdAt).toISOString(), reverted_at: row.revertedAt ? new Date(row.revertedAt).toISOString() : null, deleted_at: null };
   }
+  if (entityType === "overtimes") {
+    const row = value as Overtime;
+    return { id: row.id, employee_id: row.employeeId, work_date: row.date, manager_shift_id: row.shiftId, start_time: row.startTime, end_time: row.endTime, total_minutes: row.totalMinutes, ot_type: row.type, note: row.note, rate_percent: row.ratePercent ?? null, rate_label: row.rateLabel ?? null, attendance_confirmed_at: row.attendanceConfirmedAt ? new Date(row.attendanceConfirmedAt).toISOString() : null, attendance_confirmed_by: row.attendanceConfirmedBy ?? null, client_created_at: new Date(row.createdAt).toISOString(), deleted_at: null };
+  }
+  if (entityType === "amhs") {
+    const row = value as Amh;
+    return { id: row.id, employee_id: row.employeeId, work_date: row.date, manager_shift_id: row.shiftId, hours: row.hours, status: row.status, note: row.note, task_id: row.taskId, client_created_at: new Date(row.createdAt).toISOString(), deleted_at: null };
+  }
   const row = value as Attendance;
   return { id: row.id, employee_id: row.employeeId, work_date: row.date, manager_shift_id: row.shiftId, actual_shift_code: row.actualShiftCode ?? null, status: row.status, note: row.note, confirmed_at: row.confirmedAt ? new Date(row.confirmedAt).toISOString() : null, confirmed_by_name: row.confirmedBy ?? null, check_in: row.checkIn ? new Date(row.checkIn).toISOString() : null, check_out: row.checkOut ? new Date(row.checkOut).toISOString() : null, ot_minutes: row.otMinutes, client_created_at: new Date(row.createdAt).toISOString(), deleted_at: null };
 }
@@ -28,7 +36,9 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
     if (entityType === "employees") await db.employees.delete(row.id);
     else if (entityType === "work_schedules") await db.workSchedules.delete(row.id);
     else if (entityType === "schedule_adjustments") await db.scheduleAdjustments.delete(row.id);
-    else await db.attendance.delete(row.id);
+    else if (entityType === "attendance") await db.attendance.delete(row.id);
+    else if (entityType === "overtimes") await db.overtimes.delete(row.id);
+    else await db.amhs.delete(row.id);
     return;
   }
   if (entityType === "employees") {
@@ -39,7 +49,11 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
     await db.workSchedules.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftCode: row.shift_code, source: row.source, createdAt: millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
   } else if (entityType === "schedule_adjustments") {
     await db.scheduleAdjustments.put({ id: row.id, batchId: row.batch_id, date: row.work_date, employeeId: row.employee_id, originalShiftCode: row.original_shift_code, adjustedShiftCode: row.adjusted_shift_code, kind: row.kind, reason: row.reason ?? "", status: row.status, createdBy: row.created_by_name ?? "Cloud", createdAt: millis(row.client_created_at) ?? Date.now(), revertedAt: millis(row.reverted_at) });
-  } else {
+  } else if (entityType === "attendance") {
     await db.attendance.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftId: row.manager_shift_id, actualShiftCode: row.actual_shift_code ?? undefined, status: row.status, note: row.note ?? "", confirmedAt: millis(row.confirmed_at) ?? undefined, confirmedBy: row.confirmed_by_name ?? undefined, checkIn: millis(row.check_in), checkOut: millis(row.check_out), otMinutes: row.ot_minutes ?? 0, createdAt: millis(row.client_created_at) ?? Date.now() });
+  } else if (entityType === "overtimes") {
+    await db.overtimes.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftId: row.manager_shift_id, startTime: row.start_time, endTime: row.end_time, totalMinutes: row.total_minutes, type: row.ot_type, note: row.note ?? "", ratePercent: row.rate_percent ?? undefined, rateLabel: row.rate_label ?? undefined, attendanceConfirmedAt: millis(row.attendance_confirmed_at) ?? undefined, attendanceConfirmedBy: row.attendance_confirmed_by ?? undefined, createdAt: millis(row.client_created_at) ?? Date.now() });
+  } else {
+    await db.amhs.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftId: row.manager_shift_id, hours: Number(row.hours), status: row.status, note: row.note ?? "", taskId: row.task_id ?? null, createdAt: millis(row.client_created_at) ?? Date.now() });
   }
 }
