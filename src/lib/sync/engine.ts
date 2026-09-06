@@ -89,7 +89,7 @@ async function ensureInitialSnapshot(): Promise<void> {
 }
 
 export async function pushPending(): Promise<void> {
-  if (!supabase || !navigator.onLine || running) return;
+  if (!supabase || running) return;
   running = true; await setState("status", "SYNCING");
   const db = getDb();
   try {
@@ -141,7 +141,7 @@ export async function pushPending(): Promise<void> {
 }
 
 export async function pullChanges(): Promise<void> {
-  if (!supabase || !navigator.onLine) return;
+  if (!supabase) return;
   const db = getDb();
   for (const entity of ENTITIES) {
     const cursorKey = `cursor:${entity}`; const cursor = Number((await db.syncState.get(cursorKey))?.value ?? 0);
@@ -154,13 +154,15 @@ export async function pullChanges(): Promise<void> {
 }
 
 async function syncNow() {
-  if (!navigator.onLine) return setState("status", "OFFLINE");
   try {
     await repairLegacyScheduleIds();
     await ensureReferencedEmployeesQueued();
     if (!(await getDb().syncState.get("initialSnapshotQueued"))) await pullChanges();
     await ensureInitialSnapshot(); await pushPending(); await pullChanges();
-  } catch (error) { await setState("status", "ERROR"); console.error("[sync]", error); }
+  } catch (error) {
+    await setState("status", navigator.onLine ? "ERROR" : "OFFLINE");
+    console.error("[sync]", error);
+  }
 }
 
 /** Coalesce network/resume/realtime signals so a slow connection cannot start overlapping sync passes. */
@@ -187,6 +189,33 @@ export function startSyncEngine(): () => void {
   const onOnline = () => { void requestSync(); };
   const onOffline = () => { void setState("status", "OFFLINE"); };
   let queueDebounce: number | null = null;
+  let recoveryTimer: number | null = null;
+  let recoveryProbeRunning = false;
+
+  const stopRecoveryProbe = () => {
+    if (recoveryTimer) window.clearInterval(recoveryTimer);
+    recoveryTimer = null;
+  };
+  const recoverPendingWhenReachable = async () => {
+    if (recoveryProbeRunning || !supabase) return;
+    recoveryProbeRunning = true;
+    try {
+      // Android WebView can keep navigator.onLine=false after 4G/Wi-Fi returns.
+      // A real Data API request is therefore the source of truth.
+      const { error } = await supabase.from("employees").select("id").limit(1);
+      if (error) return;
+      const db = getDb();
+      const delayed = await db.syncQueue.where("nextRetryAt").above(Date.now()).toArray();
+      if (delayed.length) {
+        await db.syncQueue.bulkPut(delayed.map((item) => ({ ...item, nextRetryAt: Date.now() })));
+      }
+      await requestSync();
+    } catch {
+      await setState("status", "OFFLINE");
+    } finally {
+      recoveryProbeRunning = false;
+    }
+  };
 
   window.addEventListener("online", onOnline);
   window.addEventListener("offline", onOffline);
@@ -198,7 +227,15 @@ export function startSyncEngine(): () => void {
   // online edit is pushed immediately instead of waiting for resume/interval.
   const queueSubscription = liveQuery(() => getDb().syncQueue.count()).subscribe({
     next: (pending) => {
-      if (!pending || !navigator.onLine) return;
+      if (!pending) {
+        stopRecoveryProbe();
+        return;
+      }
+      if (!recoveryTimer) {
+        recoveryTimer = window.setInterval(() => { void recoverPendingWhenReachable(); }, 5_000);
+      }
+      void recoverPendingWhenReachable();
+      if (!navigator.onLine) return;
       if (queueDebounce) window.clearTimeout(queueDebounce);
       queueDebounce = window.setTimeout(() => { void requestSync(); }, 150);
     },
@@ -217,6 +254,7 @@ export function startSyncEngine(): () => void {
     document.removeEventListener("visibilitychange", syncWhenVisible);
     queueSubscription.unsubscribe();
     if (queueDebounce) window.clearTimeout(queueDebounce);
+    stopRecoveryProbe();
     if (timer) clearInterval(timer);
     if (channel && supabase) void supabase.removeChannel(channel);
   };
