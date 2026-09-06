@@ -5,10 +5,12 @@ import { applyCloudRow, toCloud } from "./mapping";
 import { retryDelay } from "./queue";
 import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
+import { liveQuery } from "dexie";
 
 const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
 let syncInFlight: Promise<void> | null = null;
+let syncRequestedWhileRunning = false;
 
 async function setState(key: string, value: string) { await getDb().syncState.put({ key, value }); }
 
@@ -163,8 +165,17 @@ async function syncNow() {
 
 /** Coalesce network/resume/realtime signals so a slow connection cannot start overlapping sync passes. */
 export function requestSync(): Promise<void> {
-  if (syncInFlight) return syncInFlight;
-  syncInFlight = syncNow().finally(() => { syncInFlight = null; });
+  if (syncInFlight) {
+    syncRequestedWhileRunning = true;
+    return syncInFlight;
+  }
+  syncInFlight = syncNow().finally(() => {
+    syncInFlight = null;
+    if (syncRequestedWhileRunning) {
+      syncRequestedWhileRunning = false;
+      queueMicrotask(() => { void requestSync(); });
+    }
+  });
   return syncInFlight;
 }
 
@@ -175,12 +186,24 @@ export function startSyncEngine(): () => void {
   };
   const onOnline = () => { void requestSync(); };
   const onOffline = () => { void setState("status", "OFFLINE"); };
+  let queueDebounce: number | null = null;
 
   window.addEventListener("online", onOnline);
   window.addEventListener("offline", onOffline);
   window.addEventListener("focus", syncWhenVisible);
   window.addEventListener("pageshow", syncWhenVisible);
   document.addEventListener("visibilitychange", syncWhenVisible);
+
+  // Local mutations always append to syncQueue. Observe that table so an
+  // online edit is pushed immediately instead of waiting for resume/interval.
+  const queueSubscription = liveQuery(() => getDb().syncQueue.count()).subscribe({
+    next: (pending) => {
+      if (!pending || !navigator.onLine) return;
+      if (queueDebounce) window.clearTimeout(queueDebounce);
+      queueDebounce = window.setTimeout(() => { void requestSync(); }, 150);
+    },
+    error: (error) => console.error("[sync queue]", error),
+  });
 
   channel = supabase.channel("phase1-sync").on("postgres_changes", { event: "*", schema: "public" }, () => { void requestSync(); }).subscribe();
   timer = window.setInterval(() => { void requestSync(); }, 60_000);
@@ -192,6 +215,8 @@ export function startSyncEngine(): () => void {
     window.removeEventListener("focus", syncWhenVisible);
     window.removeEventListener("pageshow", syncWhenVisible);
     document.removeEventListener("visibilitychange", syncWhenVisible);
+    queueSubscription.unsubscribe();
+    if (queueDebounce) window.clearTimeout(queueDebounce);
     if (timer) clearInterval(timer);
     if (channel && supabase) void supabase.removeChannel(channel);
   };
