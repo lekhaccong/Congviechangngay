@@ -171,7 +171,7 @@ export interface Attendance {
   createdAt: number;
 }
 
-export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance" | "overtimes" | "amhs";
+export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance" | "overtimes" | "amhs" | "work_blocks" | "checklists" | "tasks" | "checklist_items";
 export type SyncOperationType = "UPSERT" | "DELETE";
 
 export interface SyncOperation {

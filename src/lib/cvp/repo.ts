@@ -269,30 +269,31 @@ export async function createBlock(name: string) {
   const db = getDb();
   const max = (await db.workBlocks.toArray()).reduce((m, g) => Math.max(m, g.order), 0);
   const row: WorkBlock = { id: nid(), name, order: max + 1 };
-  await db.workBlocks.add(row);
-  await writeAudit({ action: "CREATE", module: "workBlocks", recordId: row.id, newValue: row });
+  await db.transaction("rw", db.workBlocks, db.auditLogs, db.syncQueue, async () => { await db.workBlocks.add(row); await db.syncQueue.add(makeSyncOperation("work_blocks", row.id, "UPSERT", row)); await writeAudit({ action: "CREATE", module: "workBlocks", recordId: row.id, newValue: row }); });
   return row;
 }
 
 export async function updateBlock(id: string, name: string) {
-  await getDb().workBlocks.update(id, { name });
-  await writeAudit({ action: "UPDATE", module: "workBlocks", recordId: id, newValue: { name } });
+  const db = getDb(); const old = await db.workBlocks.get(id); if (!old) return;
+  const next = { ...old, name };
+  await db.transaction("rw", db.workBlocks, db.auditLogs, db.syncQueue, async () => { await db.workBlocks.put(next); await db.syncQueue.add(makeSyncOperation("work_blocks", id, "UPSERT", next)); await writeAudit({ action: "UPDATE", module: "workBlocks", recordId: id, oldValue: old, newValue: next }); });
 }
 
 export async function deleteBlock(id: string) {
   const db = getDb();
   const used = await db.tasks.where("blockId").equals(id).count();
   if (used > 0) throw new Error("Khối đang có công việc, không thể xóa");
-  await db.workBlocks.delete(id);
-  await writeAudit({ action: "DELETE", module: "workBlocks", recordId: id });
+  const old = await db.workBlocks.get(id);
+  await db.transaction("rw", db.workBlocks, db.auditLogs, db.syncQueue, async () => { await db.workBlocks.delete(id); if (old) await db.syncQueue.add(makeSyncOperation("work_blocks", id, "DELETE", old)); await writeAudit({ action: "DELETE", module: "workBlocks", recordId: id, oldValue: old }); });
 }
 
 export async function reorderBlocks(ids: string[]) {
   const db = getDb();
   const oldRows = await db.workBlocks.bulkGet(ids);
-  await db.transaction("rw", db.workBlocks, db.auditLogs, async () => {
+  await db.transaction("rw", db.workBlocks, db.auditLogs, db.syncQueue, async () => {
     for (let i = 0; i < ids.length; i++) {
       await db.workBlocks.update(ids[i]!, { order: i + 1 });
+      const row = await db.workBlocks.get(ids[i]!); if (row) await db.syncQueue.add(makeSyncOperation("work_blocks", row.id, "UPSERT", row));
     }
     await writeAudit({
       action: "UPDATE",
@@ -454,8 +455,9 @@ export async function createTask(data: Omit<Task, "id" | "createdAt" | "updatedA
     completedAt: null,
   };
   const db = getDb();
-  await db.transaction("rw", db.tasks, db.auditLogs, async () => {
+  await db.transaction("rw", db.tasks, db.auditLogs, db.syncQueue, async () => {
     await db.tasks.add(row);
+    await db.syncQueue.add(makeSyncOperation("tasks", row.id, "UPSERT", row));
     await writeAudit({ action: "CREATE", module: "tasks", recordId: row.id, newValue: row });
   });
   return row;
@@ -466,8 +468,9 @@ export async function updateTask(id: string, patch: Partial<Task>) {
   const old = await db.tasks.get(id);
   if (!old) throw new Error("Không tìm thấy công việc");
   const next = { ...old, ...patch, id, updatedAt: Date.now() };
-  await db.transaction("rw", db.tasks, db.auditLogs, async () => {
+  await db.transaction("rw", db.tasks, db.auditLogs, db.syncQueue, async () => {
     await db.tasks.put(next);
+    await db.syncQueue.add(makeSyncOperation("tasks", next.id, "UPSERT", next));
     await writeAudit({ action: "UPDATE", module: "tasks", recordId: id, oldValue: old, newValue: next });
   });
   return next;
@@ -480,8 +483,9 @@ export async function setTaskProgress(id: string, progress: number) {
   const now = Date.now();
   const applied = applyProgress(old, progress, now);
   const next: Task = { ...old, ...applied };
-  await db.transaction("rw", db.tasks, db.auditLogs, async () => {
+  await db.transaction("rw", db.tasks, db.auditLogs, db.syncQueue, async () => {
     await db.tasks.put(next);
+    await db.syncQueue.add(makeSyncOperation("tasks", next.id, "UPSERT", next));
     await writeAudit({
       action: applied.status === "COMPLETED" ? "COMPLETE" : "PROGRESS",
       module: "tasks",
@@ -496,8 +500,9 @@ export async function setTaskProgress(id: string, progress: number) {
 export async function deleteTask(id: string) {
   const db = getDb();
   const old = await db.tasks.get(id);
-  await db.transaction("rw", db.tasks, db.auditLogs, async () => {
+  await db.transaction("rw", db.tasks, db.auditLogs, db.syncQueue, async () => {
     await db.tasks.delete(id);
+    if (old) await db.syncQueue.add(makeSyncOperation("tasks", id, "DELETE", old));
     await writeAudit({ action: "DELETE", module: "tasks", recordId: id, oldValue: old });
   });
 }
@@ -528,12 +533,13 @@ export async function toggleChecklistItem(id: string, done: boolean) {
   const c = ctx();
   const now = Date.now();
   const old = await db.checklistItems.get(id);
-  await db.transaction("rw", db.checklistItems, db.auditLogs, async () => {
+  await db.transaction("rw", db.checklistItems, db.auditLogs, db.syncQueue, async () => {
     await db.checklistItems.update(id, {
       done,
       completedAt: done ? now : null,
       completedBy: done ? c.userId : null,
     });
+    const next = await db.checklistItems.get(id); if (next && !next.threeSId) await db.syncQueue.add(makeSyncOperation("checklist_items", id, "UPSERT", next));
     await writeAudit({
       action: done ? "COMPLETE" : "UPDATE",
       module: "checklistItems",
@@ -560,8 +566,9 @@ export async function addChecklistItem(checklistId: string, label: string, extra
     note: "",
     order: siblings + 1,
   };
-  await db.transaction("rw", db.checklistItems, db.auditLogs, async () => {
+  await db.transaction("rw", db.checklistItems, db.auditLogs, db.syncQueue, async () => {
     await db.checklistItems.add(row);
+    if (!row.threeSId) await db.syncQueue.add(makeSyncOperation("checklist_items", row.id, "UPSERT", row));
     await writeAudit({ action: "CREATE", module: "checklistItems", recordId: row.id, newValue: row });
   });
   return row;
