@@ -7,7 +7,7 @@ import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
 import { liveQuery } from "dexie";
 
-const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs", "work_blocks", "checklists", "tasks", "checklist_items", "abnormalities", "abnormal_photos"];
+const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs", "work_blocks", "checklists", "tasks", "checklist_items", "abnormalities", "abnormal_photos", "data_items", "goods_items", "lots", "lot_closures", "goods_photos"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequestedWhileRunning = false;
@@ -129,6 +129,29 @@ async function ensureAbnormalSnapshot(): Promise<void> {
   });
 }
 
+async function ensureGoodsSnapshot(): Promise<void> {
+  const db = getDb();
+  if (await db.syncState.get("goodsSnapshotQueued")) return;
+  const [dataItems, goodsItems, lots, closures, photos] = await Promise.all([
+    db.dataItems.filter((row) => !row.sample).toArray(),
+    db.goodsItems.filter((row) => !row.sample).toArray(),
+    db.lots.filter((row) => !row.sample).toArray(),
+    db.lotClosures.toArray(),
+    db.photos.filter((row) => ["dataItems", "goodsItems", "lots"].includes(row.ownerModule)).toArray(),
+  ]);
+  const operations = [
+    ...dataItems.map((row) => makeSyncOperation("data_items", row.id, "UPSERT", row)),
+    ...goodsItems.map((row) => makeSyncOperation("goods_items", row.id, "UPSERT", row)),
+    ...lots.map((row) => makeSyncOperation("lots", row.id, "UPSERT", row)),
+    ...closures.map((row) => makeSyncOperation("lot_closures", row.id, "UPSERT", row)),
+    ...photos.map((row) => makeSyncOperation("goods_photos", row.id, "UPSERT", row)),
+  ];
+  await db.transaction("rw", db.syncQueue, db.syncState, async () => {
+    if (operations.length) await db.syncQueue.bulkAdd(operations);
+    await db.syncState.put({ key: "goodsSnapshotQueued", value: String(Date.now()) });
+  });
+}
+
 export async function pushPending(): Promise<void> {
   if (!supabase || running) return;
   running = true; await setState("status", "SYNCING");
@@ -152,14 +175,15 @@ export async function pushPending(): Promise<void> {
           if (deleted.length) {
             const { error } = await supabase.from(entityType).update({ deleted_at: new Date().toISOString() }).in("id", deleted.map((item) => item.entityId));
             if (error) throw error;
-            if (entityType === "abnormal_photos") {
+            if (entityType === "abnormal_photos" || entityType === "goods_photos") {
               const paths = deleted.map((item) => (JSON.parse(item.payload) as { storagePath?: string }).storagePath).filter((path): path is string => Boolean(path));
-              if (paths.length) { const { error: storageError } = await supabase.storage.from("abnormal-photos").remove(paths); if (storageError) throw storageError; }
+              const bucket = entityType === "abnormal_photos" ? "abnormal-photos" : "goods-photos";
+              if (paths.length) { const { error: storageError } = await supabase.storage.from(bucket).remove(paths); if (storageError) throw storageError; }
             }
           }
           const upserts = batch.filter((item) => item.operation === "UPSERT");
           if (upserts.length) {
-            if (entityType === "abnormal_photos") {
+            if (entityType === "abnormal_photos" || entityType === "goods_photos") {
               const { data: authData, error: authError } = await supabase.auth.getUser();
               if (authError || !authData.user) throw authError ?? new Error("Phiên đăng nhập đã hết hạn");
               for (const item of upserts) {
@@ -167,7 +191,8 @@ export async function pushPending(): Promise<void> {
                 const blob = await db.blobs.get(photo.blobId);
                 if (!blob) throw new Error(`Không tìm thấy dữ liệu ảnh ${photo.id}`);
                 photo.storagePath ||= `${authData.user.id}/${photo.id}`;
-                const { error: uploadError } = await supabase.storage.from("abnormal-photos").upload(photo.storagePath, blob.data, { contentType: blob.mime, upsert: true });
+                const bucket = entityType === "abnormal_photos" ? "abnormal-photos" : "goods-photos";
+                const { error: uploadError } = await supabase.storage.from(bucket).upload(photo.storagePath, blob.data, { contentType: blob.mime, upsert: true });
                 if (uploadError) throw uploadError;
                 await db.photos.update(photo.id, { storagePath: photo.storagePath });
                 item.payload = JSON.stringify(photo);
@@ -217,7 +242,7 @@ async function syncNow() {
     await repairLegacyScheduleIds();
     await ensureReferencedEmployeesQueued();
     if (!(await getDb().syncState.get("initialSnapshotQueued"))) await pullChanges();
-    await ensureInitialSnapshot(); await ensurePhase2Snapshot(); await ensurePhase3Snapshot(); await ensureAbnormalSnapshot(); await pushPending(); await pullChanges();
+    await ensureInitialSnapshot(); await ensurePhase2Snapshot(); await ensurePhase3Snapshot(); await ensureAbnormalSnapshot(); await ensureGoodsSnapshot(); await pushPending(); await pullChanges();
   } catch (error) {
     await setState("status", navigator.onLine ? "ERROR" : "OFFLINE");
     console.error("[sync]", error);

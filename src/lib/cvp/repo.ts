@@ -595,9 +595,9 @@ export async function savePhoto(input: {
       note: input.note ?? "",
       createdAt: Date.now(),
     });
-    if (input.ownerModule === "abnormalities") {
+    if (input.ownerModule === "abnormalities" || ["dataItems", "goodsItems", "lots"].includes(input.ownerModule)) {
       const photo = await db.photos.get(photoId);
-      if (photo) await db.syncQueue.add(makeSyncOperation("abnormal_photos", photoId, "UPSERT", photo));
+      if (photo) await db.syncQueue.add(makeSyncOperation(input.ownerModule === "abnormalities" ? "abnormal_photos" : "goods_photos", photoId, "UPSERT", photo));
     }
     await writeAudit({ action: "PHOTO", module: input.ownerModule, recordId: input.ownerId, newValue: { photoId, kind: input.kind } });
   });
@@ -609,7 +609,9 @@ export async function deletePhoto(id: string) {
   const photo = await db.photos.get(id);
   if (!photo) return;
   await db.transaction("rw", db.photos, db.blobs, db.auditLogs, db.syncQueue, async () => {
-    if (photo.ownerModule === "abnormalities") await db.syncQueue.add(makeSyncOperation("abnormal_photos", photo.id, "DELETE", photo));
+    if (photo.ownerModule === "abnormalities" || ["dataItems", "goodsItems", "lots"].includes(photo.ownerModule)) {
+      await db.syncQueue.add(makeSyncOperation(photo.ownerModule === "abnormalities" ? "abnormal_photos" : "goods_photos", photo.id, "DELETE", photo));
+    }
     await db.photos.delete(id);
     await db.blobs.delete(photo.blobId);
     await writeAudit({ action: "DELETE", module: "photos", recordId: id, oldValue: photo });
@@ -714,20 +716,29 @@ export async function upsertDataItem(data: Omit<DataItem, "id" | "createdAt" | "
       updatedAt: now,
       completedAt: data.status === "COMPLETED" ? (old?.completedAt ?? now) : null,
     };
-    await db.dataItems.put(next);
-    await writeAudit({ action: "UPDATE", module: "dataItems", recordId: next.id, oldValue: old, newValue: next });
+    await db.transaction("rw", db.dataItems, db.auditLogs, db.syncQueue, async () => {
+      await db.dataItems.put(next);
+      await db.syncQueue.add(makeSyncOperation("data_items", next.id, "UPSERT", next));
+      await writeAudit({ action: "UPDATE", module: "dataItems", recordId: next.id, oldValue: old, newValue: next });
+    });
     return next;
   }
   const row: DataItem = { ...data, id: nid(), createdAt: now, updatedAt: now, completedAt };
-  await db.dataItems.add(row);
-  await writeAudit({ action: "CREATE", module: "dataItems", recordId: row.id, newValue: row });
+  await db.transaction("rw", db.dataItems, db.auditLogs, db.syncQueue, async () => {
+    await db.dataItems.add(row);
+    await db.syncQueue.add(makeSyncOperation("data_items", row.id, "UPSERT", row));
+    await writeAudit({ action: "CREATE", module: "dataItems", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
 export async function deleteDataItem(id: string) {
-  const old = await getDb().dataItems.get(id);
-  await getDb().dataItems.delete(id);
-  await writeAudit({ action: "DELETE", module: "dataItems", recordId: id, oldValue: old });
+  const db = getDb(); const old = await db.dataItems.get(id);
+  await db.transaction("rw", db.dataItems, db.auditLogs, db.syncQueue, async () => {
+    await db.dataItems.delete(id);
+    if (old) await db.syncQueue.add(makeSyncOperation("data_items", id, "DELETE", old));
+    await writeAudit({ action: "DELETE", module: "dataItems", recordId: id, oldValue: old });
+  });
 }
 
 export async function deleteDataItems(ids: string[]) {
@@ -740,20 +751,29 @@ export async function upsertGoods(data: Omit<GoodsItem, "id" | "createdAt" | "up
   if (data.id) {
     const old = await db.goodsItems.get(data.id);
     const next: GoodsItem = { ...(old as GoodsItem), ...data, id: data.id, updatedAt: now };
-    await db.goodsItems.put(next);
-    await writeAudit({ action: "UPDATE", module: "goodsItems", recordId: next.id, oldValue: old, newValue: next });
+    await db.transaction("rw", db.goodsItems, db.auditLogs, db.syncQueue, async () => {
+      await db.goodsItems.put(next);
+      await db.syncQueue.add(makeSyncOperation("goods_items", next.id, "UPSERT", next));
+      await writeAudit({ action: "UPDATE", module: "goodsItems", recordId: next.id, oldValue: old, newValue: next });
+    });
     return next;
   }
   const row: GoodsItem = { ...data, id: nid(), createdAt: now, updatedAt: now };
-  await db.goodsItems.add(row);
-  await writeAudit({ action: "CREATE", module: "goodsItems", recordId: row.id, newValue: row });
+  await db.transaction("rw", db.goodsItems, db.auditLogs, db.syncQueue, async () => {
+    await db.goodsItems.add(row);
+    await db.syncQueue.add(makeSyncOperation("goods_items", row.id, "UPSERT", row));
+    await writeAudit({ action: "CREATE", module: "goodsItems", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
 export async function deleteGoods(id: string) {
-  const old = await getDb().goodsItems.get(id);
-  await getDb().goodsItems.delete(id);
-  await writeAudit({ action: "DELETE", module: "goodsItems", recordId: id, oldValue: old });
+  const db = getDb(); const old = await db.goodsItems.get(id);
+  await db.transaction("rw", db.goodsItems, db.auditLogs, db.syncQueue, async () => {
+    await db.goodsItems.delete(id);
+    if (old) await db.syncQueue.add(makeSyncOperation("goods_items", id, "DELETE", old));
+    await writeAudit({ action: "DELETE", module: "goodsItems", recordId: id, oldValue: old });
+  });
 }
 
 export async function upsertLot(data: Omit<Lot, "id" | "createdAt"> & { id?: string }) {
@@ -762,13 +782,19 @@ export async function upsertLot(data: Omit<Lot, "id" | "createdAt"> & { id?: str
     const old = await db.lots.get(data.id);
     if (old?.status === "CLOSED") throw new Error("Lot đã chốt, không sửa trực tiếp");
     const next: Lot = { ...(old as Lot), ...data, id: data.id };
-    await db.lots.put(next);
-    await writeAudit({ action: "UPDATE", module: "lots", recordId: next.id, oldValue: old, newValue: next });
+    await db.transaction("rw", db.lots, db.auditLogs, db.syncQueue, async () => {
+      await db.lots.put(next);
+      await db.syncQueue.add(makeSyncOperation("lots", next.id, "UPSERT", next));
+      await writeAudit({ action: "UPDATE", module: "lots", recordId: next.id, oldValue: old, newValue: next });
+    });
     return next;
   }
   const row: Lot = { ...data, id: nid(), createdAt: Date.now() };
-  await db.lots.add(row);
-  await writeAudit({ action: "CREATE", module: "lots", recordId: row.id, newValue: row });
+  await db.transaction("rw", db.lots, db.auditLogs, db.syncQueue, async () => {
+    await db.lots.add(row);
+    await db.syncQueue.add(makeSyncOperation("lots", row.id, "UPSERT", row));
+    await writeAudit({ action: "CREATE", module: "lots", recordId: row.id, newValue: row });
+  });
   return row;
 }
 
@@ -777,7 +803,9 @@ export async function deleteLot(id: string) {
   const old = await db.lots.get(id);
   if (!old) return;
   const closures = await db.lotClosures.where("lotId").equals(id).toArray();
-  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, async () => {
+  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, db.syncQueue, async () => {
+    for (const closure of closures) await db.syncQueue.add(makeSyncOperation("lot_closures", closure.id, "DELETE", closure));
+    await db.syncQueue.add(makeSyncOperation("lots", id, "DELETE", old));
     await db.lotClosures.where("lotId").equals(id).delete();
     await db.lots.delete(id);
     await writeAudit({
@@ -808,9 +836,12 @@ export async function closeLot(lotId: string, note: string, photoId: string | nu
     note,
     photoId,
   };
-  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, async () => {
-    await db.lots.update(lotId, { status: "CLOSED" });
+  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, db.syncQueue, async () => {
+    const closedLot = { ...lot, status: "CLOSED" as const };
+    await db.lots.put(closedLot);
     await db.lotClosures.add(closure);
+    await db.syncQueue.add(makeSyncOperation("lots", lotId, "UPSERT", closedLot));
+    await db.syncQueue.add(makeSyncOperation("lot_closures", closure.id, "UPSERT", closure));
     await writeAudit({
       action: "LOT_CLOSE",
       module: "lots",
@@ -842,10 +873,12 @@ export async function closeExportInvoice(invoice: string, note = "") {
     date: c.date, quantity: exportRows.reduce((sum, row) => sum + row.quantity, 0), status: "OPEN", createdAt: now,
   };
   const closure = { id: nid(), lotId: lot.id, closedBy: c.userId, closedAt: now, note, photoId: null };
-  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, async () => {
-    if (existing) await db.lots.update(lot.id, { status: "CLOSED" });
-    else await db.lots.add({ ...lot, status: "CLOSED" });
+  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, db.syncQueue, async () => {
+    const closedLot = { ...lot, status: "CLOSED" as const };
+    await db.lots.put(closedLot);
     await db.lotClosures.add(closure);
+    await db.syncQueue.add(makeSyncOperation("lots", lot.id, "UPSERT", closedLot));
+    await db.syncQueue.add(makeSyncOperation("lot_closures", closure.id, "UPSERT", closure));
     await writeAudit({ action: "LOT_CLOSE", module: "lots", recordId: lot.id, oldValue: existing, newValue: { status: "CLOSED", invoice: normalized, closedBy: c.userName, note } });
   });
   return closure;
