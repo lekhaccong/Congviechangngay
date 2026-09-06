@@ -5,8 +5,6 @@ import { applyCloudRow, toCloud } from "./mapping";
 import { retryDelay } from "./queue";
 import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
-import { App } from "@capacitor/app";
-import type { PluginListenerHandle } from "@capacitor/core";
 
 const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
@@ -172,8 +170,6 @@ export function requestSync(): Promise<void> {
 
 export function startSyncEngine(): () => void {
   if (!supabaseConfigured || !supabase) return () => {};
-  let nativeResumeListener: PluginListenerHandle | null = null;
-  let stopped = false;
   const syncWhenVisible = () => {
     if (document.visibilityState === "visible") void requestSync();
   };
@@ -185,25 +181,17 @@ export function startSyncEngine(): () => void {
   window.addEventListener("focus", syncWhenVisible);
   window.addEventListener("pageshow", syncWhenVisible);
   document.addEventListener("visibilitychange", syncWhenVisible);
-  void App.addListener("appStateChange", ({ isActive }) => {
-    if (isActive) void requestSync();
-  }).then((listener) => {
-    if (stopped) void listener.remove();
-    else nativeResumeListener = listener;
-  }).catch(() => { /* Browser/PWA: focus, pageshow and visibilitychange cover resume. */ });
 
   channel = supabase.channel("phase1-sync").on("postgres_changes", { event: "*", schema: "public" }, () => { void requestSync(); }).subscribe();
   timer = window.setInterval(() => { void requestSync(); }, 60_000);
   void requestSync();
 
   return () => {
-    stopped = true;
     window.removeEventListener("online", onOnline);
     window.removeEventListener("offline", onOffline);
     window.removeEventListener("focus", syncWhenVisible);
     window.removeEventListener("pageshow", syncWhenVisible);
     document.removeEventListener("visibilitychange", syncWhenVisible);
-    if (nativeResumeListener) void nativeResumeListener.remove();
     if (timer) clearInterval(timer);
     if (channel && supabase) void supabase.removeChannel(channel);
   };
