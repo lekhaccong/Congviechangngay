@@ -34,7 +34,14 @@ export async function toCloud(entityType: SyncEntityType, value: unknown): Promi
   }
   if (entityType === "tasks") {
     const row = value as Task;
-    return { id: row.id, name: row.name, block_id: row.blockId, assignee_id: row.assigneeId || null, work_date: row.date, manager_shift_id: row.shiftId, estimated_minutes: row.estimatedMinutes, deadline: row.deadline ? new Date(row.deadline).toISOString() : null, reminder_time: row.reminderTime ? new Date(row.reminderTime).toISOString() : null, status: row.status, progress: row.progress, note: row.note, client_created_at: new Date(row.createdAt).toISOString(), client_updated_at: new Date(row.updatedAt).toISOString(), completed_at: row.completedAt ? new Date(row.completedAt).toISOString() : null, deleted_at: null };
+    // Repair tasks created by older builds while the async select options were
+    // still loading. The UI displayed the first values, but stored empty ids.
+    const db = getDb();
+    const fallbackBlock = row.blockId ? undefined : await db.workBlocks.orderBy("order").first();
+    const fallbackAssignee = row.assigneeId ? undefined : await db.employees.filter((employee) => !employee.sample).first();
+    const blockId = row.blockId || fallbackBlock?.id;
+    if (!blockId) throw new Error(`Công việc ${row.name} chưa có khối công việc`);
+    return { id: row.id, name: row.name, block_id: blockId, assignee_id: row.assigneeId || fallbackAssignee?.id || null, work_date: row.date, manager_shift_id: row.shiftId, estimated_minutes: row.estimatedMinutes, deadline: row.deadline ? new Date(row.deadline).toISOString() : null, reminder_time: row.reminderTime ? new Date(row.reminderTime).toISOString() : null, status: row.status, progress: row.progress, note: row.note ?? "", client_created_at: new Date(row.createdAt).toISOString(), client_updated_at: new Date(row.updatedAt).toISOString(), completed_at: row.completedAt ? new Date(row.completedAt).toISOString() : null, deleted_at: null };
   }
   if (entityType === "checklist_items") {
     const row = value as ChecklistItem;

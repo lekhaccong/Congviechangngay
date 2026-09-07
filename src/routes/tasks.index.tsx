@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { PageHeader, EmptyState } from "@/components/cvp/page-header";
@@ -119,22 +119,38 @@ function TaskCreate({
   const [note, setNote] = useState("");
   const [deadlineLocal, setDeadline] = useState("");
 
+  // Rows arrive asynchronously from IndexedDB. A native select can display its
+  // first option while the controlled value is still an empty string, which
+  // used to create a task with an invalid empty block id and no assignee.
+  useEffect(() => {
+    if (!blockId && blocks[0]) setBlockId(blocks[0].id);
+  }, [blockId, blocks]);
+  useEffect(() => {
+    if (!assigneeId && people[0]) setAssignee(people[0].id);
+  }, [assigneeId, people]);
+
   return (
     <Dialog open={open} onClose={onClose} title="Công việc mới">
       <form
         className="space-y-3"
         onSubmit={async (e) => {
           e.preventDefault();
+          const resolvedBlockId = blockId || blocks[0]?.id;
+          const resolvedAssigneeId = assigneeId || people[0]?.id;
+          if (!resolvedBlockId) {
+            toast.error("Chưa có khối công việc để tạo việc");
+            return;
+          }
           await createTask({
             name,
-            blockId,
-            assigneeId,
+            blockId: resolvedBlockId,
+            assigneeId: resolvedAssigneeId ?? "",
             date,
             shiftId: shiftId ?? "",
             estimatedMinutes: Number(minutes) || 30,
             deadline: deadlineLocal ? new Date(deadlineLocal).getTime() : Date.now() + 4 * 3600_000,
             reminderTime: deadlineLocal ? new Date(deadlineLocal).getTime() - 30 * 60_000 : null,
-            note,
+            note: note.trim(),
           });
           toast.success("Đã tạo công việc");
           setName("");
