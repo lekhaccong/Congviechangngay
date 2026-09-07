@@ -3,7 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { cacheProfile, fetchMyProfile, getCachedProfile, type CloudProfile } from "@/lib/supabase/profile";
 import { supabase, supabaseConfigured } from "@/lib/supabase/client";
-import { clearPushUser, identifyPushUser } from "@/lib/push/onesignal";
+import { clearPushUser, identifyPushUser, initializePush } from "@/lib/push/onesignal";
 
 /**
  * App-wide client provider mounted once near the root (in `src/routes/__root.tsx`):
@@ -22,6 +22,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    // Initialize at application startup so OneSignal can create the device
+    // subscription before a cloud profile has finished loading.
+    void initializePush().catch(console.error);
     if (!supabase) return;
     const client = supabase;
     let alive = true;

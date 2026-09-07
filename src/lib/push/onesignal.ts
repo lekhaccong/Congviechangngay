@@ -18,13 +18,18 @@ declare global {
 let initialized: Promise<void> | null = null;
 let nativeClickListenerAdded = false;
 
+async function nativeOneSignal() {
+  const { default: OneSignal } = await import("@onesignal/capacitor-plugin");
+  return OneSignal;
+}
+
 function normalizeBase() {
   const base = import.meta.env.BASE_URL || "/";
   return base.endsWith("/") ? base : `${base}/`;
 }
 
 async function initializeNative() {
-  const { default: OneSignal } = await import("onesignal-cordova-plugin");
+  const OneSignal = await nativeOneSignal();
   OneSignal.initialize(appId);
   if (!nativeClickListenerAdded) {
     nativeClickListenerAdded = true;
@@ -69,7 +74,14 @@ export function pushConfigured() { return Boolean(appId); }
 
 export function initializePush(): Promise<void> {
   if (!appId || typeof window === "undefined") return Promise.resolve();
-  initialized ||= isNativeAndroid() ? initializeNative() : initializeWeb();
+  if (!initialized) {
+    initialized = (isNativeAndroid() ? initializeNative() : initializeWeb()).catch((error) => {
+      // A native bridge can still be starting during the first React render.
+      // Do not permanently cache that failure; the login/button path must retry.
+      initialized = null;
+      throw error;
+    });
+  }
   return initialized;
 }
 
@@ -77,7 +89,7 @@ export async function identifyPushUser(userId: string, role: string) {
   if (!appId) return;
   await initializePush();
   if (isNativeAndroid()) {
-    const { default: OneSignal } = await import("onesignal-cordova-plugin");
+    const OneSignal = await nativeOneSignal();
     OneSignal.login(userId);
     OneSignal.User.addTags({ role, user_id: userId });
     return;
@@ -92,7 +104,7 @@ export async function clearPushUser() {
   if (!appId) return;
   await initializePush();
   if (isNativeAndroid()) {
-    const { default: OneSignal } = await import("onesignal-cordova-plugin");
+    const OneSignal = await nativeOneSignal();
     OneSignal.logout();
     return;
   }
@@ -103,8 +115,15 @@ export async function requestPushPermission(): Promise<boolean> {
   if (!appId) throw new Error("Bản build chưa có VITE_ONESIGNAL_APP_ID");
   await initializePush();
   if (isNativeAndroid()) {
-    const { default: OneSignal } = await import("onesignal-cordova-plugin");
-    return OneSignal.Notifications.requestPermission(true);
+    const OneSignal = await nativeOneSignal();
+    const accepted = await OneSignal.Notifications.requestPermission(true);
+    if (!accepted) return false;
+    OneSignal.User.pushSubscription.optIn();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (await OneSignal.User.pushSubscription.getIdAsync()) return true;
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+    }
+    throw new Error("Đã cấp quyền nhưng OneSignal chưa tạo Subscription ID. Hãy mở lại ứng dụng và thử lại.");
   }
   let granted = false;
   await new Promise<void>((resolve) => {
