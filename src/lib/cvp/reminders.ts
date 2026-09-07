@@ -98,7 +98,6 @@ export async function requestNotifyPermission() {
   if (isNativeNotifications()) {
     const permission = await LocalNotifications.requestPermissions();
     if (permission.display !== "granted") return false;
-    await syncNativeReminders();
     return true;
   }
   if (typeof Notification === "undefined") return false;
@@ -111,4 +110,10 @@ export async function sendTestNotification() {
   if (!(await requestNotifyPermission())) throw new Error("Chưa được cấp quyền thông báo. Hãy bật trong Cài đặt điện thoại → Ứng dụng → CongViecPro → Thông báo.");
   if (isNativeNotifications()) await testNativeNotification();
   else await notifyBrowser("CongViecPro", "Thông báo thử đã hoạt động.");
+}
+
+export async function enableTaskReminders() {
+  if (!(await requestNotifyPermission())) return false;
+  if (isNativeNotifications()) await syncNativeReminders();
+  return true;
 }

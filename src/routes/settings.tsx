@@ -9,9 +9,10 @@ import { getDb, resetDatabase } from "@/lib/cvp/db";
 import { useAppStore } from "@/lib/cvp/store";
 import { applyCurrentUser, applyShift, wipeSample } from "@/lib/cvp/init";
 import { persistSetting } from "@/lib/cvp/repo";
-import { requestNotifyPermission, sendTestNotification } from "@/lib/cvp/reminders";
+import { enableTaskReminders, sendTestNotification } from "@/lib/cvp/reminders";
 import { ROLE_LABEL, APP_VERSION } from "@/lib/cvp/types";
 import { can } from "@/lib/cvp/permissions";
+import { pushConfigured, requestPushPermission } from "@/lib/push/onesignal";
 
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
 
@@ -82,13 +83,23 @@ function SettingsPage() {
         </ul>
       </section>
       <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+        <h2 className="font-medium">Thông báo từ các máy khác</h2>
+        <Button variant="secondary" className="w-full" disabled={!pushConfigured()} onClick={async () => {
+          try {
+            const ok = await requestPushPermission();
+            toast[ok ? "success" : "error"](ok ? "Đã bật thông báo chung" : "Bạn chưa cấp quyền thông báo cho ứng dụng.");
+          } catch (error) { toast.error(error instanceof Error ? error.message : "Không bật được thông báo chung"); }
+        }}>Bật thông báo chung</Button>
+        <p className="text-xs text-muted">Nhận thay đổi Hàng xuất, Hàng Air, DATA, bất thường, công việc hoàn thành và đổi ca, kể cả khi ứng dụng không mở.</p>
+      </section>
+      <section className="space-y-3 rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <h2 className="font-medium">Nhắc việc</h2>
         <Button
           variant="secondary"
           className="w-full"
           onClick={async () => {
             try {
-            const ok = await requestNotifyPermission();
+            const ok = await enableTaskReminders();
             toast[ok ? "success" : "error"](ok ? "Đã bật thông báo" : "Hãy bật quyền thông báo trong Cài đặt điện thoại → Ứng dụng → Quản lý kho E.");
             } catch { toast.error("Không bật được thông báo. Hãy kiểm tra cài đặt điện thoại."); }
           }}
@@ -96,7 +107,7 @@ function SettingsPage() {
           Bật thông báo
         </Button>
         <Button variant="secondary" className="w-full" onClick={async () => {
-          try { await sendTestNotification(); toast.success("Đã gửi thử. Trên Android, về màn hình chính và chờ khoảng 10 giây."); }
+          try { await sendTestNotification(); toast.success("Đã gửi thông báo thử."); }
           catch (error) { toast.error(error instanceof Error ? error.message : "Không gửi được thông báo thử"); }
         }}>Gửi thông báo thử</Button>
         <p className="text-xs text-muted">Android nhắc công việc trước hạn 30 phút và khi đến hạn kể cả khi rời app. DATA thiếu và lot chưa chốt được kiểm tra khi app mở. Thông báo có thể chậm nếu máy tiết kiệm pin; buộc dừng app sẽ ngừng nhắc cho đến khi mở lại.</p>

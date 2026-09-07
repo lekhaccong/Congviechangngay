@@ -23,6 +23,7 @@ jobs:
     env:
       VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
+      VITE_ONESIGNAL_APP_ID: ${{ vars.VITE_ONESIGNAL_APP_ID }}
       PAGES_BUILD: "1"
       VITE_BASE_PATH: "/Congviechangngay/"
       VITE_PWA_HASH_ROUTING: "1"

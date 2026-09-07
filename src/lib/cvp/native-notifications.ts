@@ -67,8 +67,12 @@ export async function showNativeNotification(title: string, body: string) {
 
 export async function testNativeNotification() {
   await channel();
-  await LocalNotifications.schedule({ notifications: [{ id: 42, title: "CongViecPro · Thông báo thử", body: "Thông báo Android đã hoạt động.", channelId,
-    schedule: { at: new Date(Date.now() + 10_000), allowWhileIdle: true } }] });
+  await LocalNotifications.schedule({ notifications: [{
+    id: 42,
+    title: "Quản lý kho E · Thông báo thử",
+    body: "Thông báo trên Android đã hoạt động.",
+    channelId,
+  }] });
 }
 
 export async function clearNativeReminders() {

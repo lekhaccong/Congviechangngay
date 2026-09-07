@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import { LoginScreen } from "@/components/auth/login-screen";
 import { cacheProfile, fetchMyProfile, getCachedProfile, type CloudProfile } from "@/lib/supabase/profile";
 import { supabase, supabaseConfigured } from "@/lib/supabase/client";
+import { clearPushUser, identifyPushUser } from "@/lib/push/onesignal";
 
 /**
  * App-wide client provider mounted once near the root (in `src/routes/__root.tsx`):
@@ -27,12 +28,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const resolve = async (next: Session | null) => {
       if (!alive) return;
       setSession(next);
-      if (!next) { setProfile(null); cacheProfile(null); setReady(true); return; }
+      if (!next) { setProfile(null); cacheProfile(null); void clearPushUser().catch(console.error); setReady(true); return; }
       if (!navigator.onLine && getCachedProfile()?.id === next.user.id) { setProfile(getCachedProfile()); setReady(true); return; }
       try {
         const nextProfile = await fetchMyProfile();
         if (!nextProfile.active) { await client.auth.signOut(); setMessage("Tài khoản đã bị khóa."); return; }
         if (alive) setProfile(nextProfile);
+        void identifyPushUser(next.user.id, nextProfile.role).catch(console.error);
       } catch { if (!getCachedProfile()) setMessage("Không đọc được hồ sơ tài khoản. Hãy kiểm tra kết nối mạng."); }
       finally { if (alive) setReady(true); }
     };
