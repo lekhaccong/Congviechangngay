@@ -39,15 +39,32 @@ declare
   actor uuid := nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
 begin
   if tg_table_name = 'goods_items' then
+    if tg_op = 'UPDATE'
+      and new.invoice is not distinct from old.invoice
+      and new.product_code is not distinct from old.product_code
+      and new.status is not distinct from old.status
+      and new.source_kind is not distinct from old.source_kind
+      and new.export_date is not distinct from old.export_date
+      and new.quantity is not distinct from old.quantity then return new; end if;
     kind := case when coalesce(new.source_kind, 'SEA') = 'AIR' then 'GOODS_AIR' else 'GOODS_EXPORT' end;
     notification_title := case when kind = 'GOODS_AIR' then 'Hàng Air có thay đổi' else 'Hàng xuất có thay đổi' end;
     notification_body := concat_ws(' · ', nullif(new.invoice, ''), nullif(new.product_code, ''), nullif(new.status, ''));
     notification_route := '/goods';
   elsif tg_table_name = 'data_items' then
+    if tg_op = 'UPDATE'
+      and new.product_code is not distinct from old.product_code
+      and new.invoice is not distinct from old.invoice
+      and new.status is not distinct from old.status
+      and new.quantity is not distinct from old.quantity then return new; end if;
     kind := 'DATA'; notification_title := 'DATA có thay đổi';
     notification_body := concat_ws(' · ', nullif(new.product_code, ''), nullif(new.invoice, ''), nullif(new.status, ''));
     notification_route := '/goods';
   elsif tg_table_name = 'abnormalities' then
+    if tg_op = 'UPDATE'
+      and new.status is not distinct from old.status
+      and new.description is not distinct from old.description
+      and new.severity is not distinct from old.severity
+      and new.handler_id is not distinct from old.handler_id then return new; end if;
     kind := 'ABNORMALITY'; notification_title := 'Báo cáo bất thường';
     notification_body := left(coalesce(new.description, new.abnormal_type, 'Có báo cáo mới'), 180);
     notification_route := '/abnormal/' || new.id::text;
