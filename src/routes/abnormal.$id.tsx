@@ -17,6 +17,8 @@ function AbnormalDetail() {
   const { id } = Route.useParams();
   const item = useRow(() => getDb().abnormalities.get(id), [id]);
   const people = useRows(() => getDb().employees.toArray());
+  const block = useRow(() => item?.workBlockId ? getDb().workBlocks.get(item.workBlockId) : undefined, [item?.workBlockId]);
+  const task = useRow(() => item?.taskId ? getDb().tasks.get(item.taskId) : undefined, [item?.taskId]);
   if (!item) return <p className="text-muted">Không tìm thấy.</p>;
   const detector = people.find((p) => p.id === item.detectedBy);
   const handler = people.find((p) => p.id === item.handlerId);
@@ -29,6 +31,7 @@ function AbnormalDetail() {
         {SEVERITY_LABEL[item.severity]} · {detector?.name} · {formatDateTime(item.detectedAt)}
         {handler ? ` · xử lý: ${handler.name}` : ""}
       </p>
+      <p className="text-sm text-muted">Khối: {block?.name ?? "Chưa xác định"}{task ? ` · Công việc: ${task.name}` : " · Bất thường chung"}</p>
       <NativeSelect
         value={item.status}
         onChange={(e) => void updateAbnormal(id, { status: e.target.value as AbnormalStatus })}

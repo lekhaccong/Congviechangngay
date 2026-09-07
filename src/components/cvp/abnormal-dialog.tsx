@@ -21,11 +21,21 @@ export function AbnormalDialog({
   linkedId?: string | null;
 }) {
   const userId = useAppStore((s) => s.currentUserId);
+  const date = useAppStore((s) => s.selectedDate);
+  const shiftId = useAppStore((s) => s.selectedShiftId);
   const people = useRows(() => getDb().employees.toArray());
+  const blocks = useRows(() => getDb().workBlocks.orderBy("order").toArray());
+  const tasks = useRows(() => getDb().tasks.filter((row) => row.date === date && (!shiftId || row.shiftId === shiftId)).toArray(), [date, shiftId]);
   const [type, setType] = useState<string>(ABNORMAL_TYPES[0]);
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<AbnormalSeverity>("MEDIUM");
   const [handlerId, setHandlerId] = useState("");
+  const linkedTask = linkedModule === "tasks" && linkedId ? tasks.find((row) => row.id === linkedId) : undefined;
+  const [workBlockId, setWorkBlockId] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const selectedBlockId = linkedTask?.blockId ?? workBlockId;
+  const selectedTaskId = linkedTask?.id ?? (taskId || null);
+  const availableTasks = tasks.filter((row) => !selectedBlockId || row.blockId === selectedBlockId);
 
   return (
     <Dialog open={open} onClose={onClose} title="Báo bất thường">
@@ -35,6 +45,10 @@ export function AbnormalDialog({
           e.preventDefault();
           if (!description.trim()) {
             toast.error("Nhập mô tả");
+            return;
+          }
+          if (!selectedBlockId) {
+            toast.error("Chọn khối công việc liên quan");
             return;
           }
           await createAbnormal({
@@ -48,6 +62,10 @@ export function AbnormalDialog({
             status: "NEW",
             linkedModule: linkedModule ?? null,
             linkedId: linkedId ?? null,
+            workBlockId: selectedBlockId,
+            taskId: selectedTaskId,
+            date: linkedTask?.date ?? date,
+            shiftId: linkedTask?.shiftId ?? shiftId,
           });
           toast.success("Đã ghi bất thường");
           setDescription("");
@@ -80,6 +98,18 @@ export function AbnormalDialog({
                 {p.name}
               </option>
             ))}
+          </NativeSelect>
+        </Field>
+        <Field label="Khối công việc">
+          <NativeSelect value={selectedBlockId} disabled={Boolean(linkedTask)} onChange={(e) => { setWorkBlockId(e.target.value); setTaskId(""); }} required>
+            <option value="">Chọn khối</option>
+            {blocks.map((block) => <option key={block.id} value={block.id}>{block.name}</option>)}
+          </NativeSelect>
+        </Field>
+        <Field label="Công việc cụ thể (không bắt buộc)">
+          <NativeSelect value={selectedTaskId ?? ""} disabled={Boolean(linkedTask)} onChange={(e) => setTaskId(e.target.value)}>
+            <option value="">Bất thường chung của khối</option>
+            {availableTasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
           </NativeSelect>
         </Field>
         <Field label="Liên kết">

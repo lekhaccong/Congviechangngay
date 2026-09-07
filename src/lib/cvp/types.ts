@@ -388,6 +388,10 @@ export interface Abnormality {
   status: AbnormalStatus;
   linkedModule: string | null;
   linkedId: string | null;
+  workBlockId?: string | null;
+  taskId?: string | null;
+  date?: string | null;
+  shiftId?: string | null;
   sample?: boolean;
   createdAt: number;
   updatedAt: number;

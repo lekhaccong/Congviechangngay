@@ -282,7 +282,8 @@ export async function updateBlock(id: string, name: string) {
 export async function deleteBlock(id: string) {
   const db = getDb();
   const used = await db.tasks.where("blockId").equals(id).count();
-  if (used > 0) throw new Error("Khá»‘i Ä‘ang cÃ³ cÃ´ng viá»‡c, khÃ´ng thá»ƒ xÃ³a");
+  const usedByAbnormality = await db.abnormalities.filter((row) => row.workBlockId === id).count();
+  if (used > 0 || usedByAbnormality > 0) throw new Error("Khá»‘i Ä‘ang cÃ³ cÃ´ng viá»‡c hoáº·c báº¥t thÆ°á»ng, khÃ´ng thá»ƒ xÃ³a");
   const old = await db.workBlocks.get(id);
   await db.transaction("rw", db.workBlocks, db.auditLogs, db.syncQueue, async () => { await db.workBlocks.delete(id); if (old) await db.syncQueue.add(makeSyncOperation("work_blocks", id, "DELETE", old)); await writeAudit({ action: "DELETE", module: "workBlocks", recordId: id, oldValue: old }); });
 }
@@ -476,10 +477,16 @@ export async function updateTask(id: string, patch: Partial<Task>) {
   return next;
 }
 
-export async function setTaskProgress(id: string, progress: number) {
+export async function setTaskProgress(id: string, progress: number, options?: { allowOpenAbnormalities?: boolean }) {
   const db = getDb();
   const old = await db.tasks.get(id);
   if (!old) throw new Error("KhÃ´ng tÃ¬m tháº¥y cÃ´ng viá»‡c");
+  if (progress >= 100 && !options?.allowOpenAbnormalities) {
+    const openAbnormalities = await db.abnormalities
+      .filter((row) => (row.taskId === id || (row.linkedModule === "tasks" && row.linkedId === id)) && row.status !== "CLOSED")
+      .count();
+    if (openAbnormalities > 0) throw new Error(`CÃ´ng viá»‡c cÃ²n ${openAbnormalities} báº¥t thÆ°á»ng chÆ°a Ä‘Ã³ng`);
+  }
   const now = Date.now();
   const applied = applyProgress(old, progress, now);
   const next: Task = { ...old, ...applied };
@@ -870,117 +877,4 @@ export async function closeExportInvoice(invoice: string, note = "") {
   const lot: Lot = existing ?? {
     id: nid(), lotCode: normalized, invoice: normalized,
     productCode: [...new Set(exportRows.map((row) => row.productCode).filter(Boolean))].join(", ") || "HÃ ng xuáº¥t",
-    date: c.date, quantity: exportRows.reduce((sum, row) => sum + row.quantity, 0), status: "OPEN", createdAt: now,
-  };
-  const closure = { id: nid(), lotId: lot.id, closedBy: c.userId, closedAt: now, note, photoId: null };
-  await db.transaction("rw", db.lots, db.lotClosures, db.auditLogs, db.syncQueue, async () => {
-    const closedLot = { ...lot, status: "CLOSED" as const };
-    await db.lots.put(closedLot);
-    await db.lotClosures.add(closure);
-    await db.syncQueue.add(makeSyncOperation("lots", lot.id, "UPSERT", closedLot));
-    await db.syncQueue.add(makeSyncOperation("lot_closures", closure.id, "UPSERT", closure));
-    await writeAudit({ action: "LOT_CLOSE", module: "lots", recordId: lot.id, oldValue: existing, newValue: { status: "CLOSED", invoice: normalized, closedBy: c.userName, note } });
-  });
-  return closure;
-}
-
-export async function createThreeS(date: string, shiftId: string) {
-  const row: ThreeSRecord = {
-    id: nid(),
-    date,
-    shiftId,
-    note: "",
-    completedAt: null,
-    createdAt: Date.now(),
-  };
-  const db = getDb();
-  const labels = ["SÃ ng lá»c", "Sáº¯p xáº¿p", "Sáº¡ch sáº½", "SÄƒn sÃ³c / Duy trÃ¬", "Sáºµn sÃ ng / Ká»· luáº­t", "3D"];
-  await db.transaction("rw", db.threeS, db.checklistItems, db.auditLogs, async () => {
-    await db.threeS.add(row);
-    await db.checklistItems.bulkAdd(
-      labels.map((label, i) => ({
-        id: nid(),
-        checklistId: `threes-${row.id}`,
-        taskId: null,
-        threeSId: row.id,
-        label,
-        done: false,
-        completedAt: null,
-        completedBy: null,
-        photoId: null,
-        note: "",
-        order: i + 1,
-      })),
-    );
-    await writeAudit({ action: "CREATE", module: "threeS", recordId: row.id, newValue: row });
-  });
-  return row;
-}
-
-export async function createAbnormal(data: Omit<Abnormality, "id" | "createdAt" | "updatedAt">) {
-  const db = getDb();
-  const now = Date.now();
-  const row: Abnormality = { ...data, id: nid(), createdAt: now, updatedAt: now };
-  await db.transaction("rw", db.abnormalities, db.auditLogs, db.syncQueue, async () => {
-    await db.abnormalities.add(row);
-    await db.syncQueue.add(makeSyncOperation("abnormalities", row.id, "UPSERT", row));
-    await writeAudit({ action: "CREATE", module: "abnormalities", recordId: row.id, newValue: row });
-  });
-  return row;
-}
-
-export async function updateAbnormal(id: string, patch: Partial<Abnormality>) {
-  const db = getDb();
-  const old = await db.abnormalities.get(id);
-  if (!old) throw new Error("KhÃ´ng tÃ¬m tháº¥y báº¥t thÆ°á»ng");
-  const next = { ...old, ...patch, id, updatedAt: Date.now() };
-  await db.transaction("rw", db.abnormalities, db.auditLogs, db.syncQueue, async () => {
-    await db.abnormalities.put(next);
-    await db.syncQueue.add(makeSyncOperation("abnormalities", id, "UPSERT", next));
-    await writeAudit({ action: "UPDATE", module: "abnormalities", recordId: id, oldValue: old, newValue: next });
-  });
-  return next;
-}
-
-export async function saveHandover(input: { summary: string; note: string }) {
-  const c = ctx();
-  const row: Handover = {
-    id: nid(),
-    date: c.date,
-    shiftId: c.shiftId ?? "",
-    createdBy: c.userId,
-    summary: input.summary,
-    note: input.note,
-    createdAt: Date.now(),
-  };
-  await getDb().handovers.add(row);
-  await writeAudit({ action: "HANDOVER", module: "handovers", recordId: row.id, newValue: row });
-  return row;
-}
-
-export async function lookupCode(code: string) {
-  const db = getDb();
-  const q = code.trim();
-  if (!q) return [] as Array<{ module: string; id: string; title: string; subtitle: string }>;
-  const upper = q.toUpperCase();
-  const hits: Array<{ module: string; id: string; title: string; subtitle: string }> = [];
-  const employees = await db.employees.filter((e) => e.code.toUpperCase() === upper || e.name.toLowerCase().includes(q.toLowerCase())).toArray();
-  for (const e of employees) hits.push({ module: "employees", id: e.id, title: e.name, subtitle: e.code });
-  const data = await db.dataItems.filter((d) => d.productCode.toUpperCase() === upper || d.invoice.toUpperCase() === upper || d.lot.toUpperCase() === upper).toArray();
-  for (const d of data) hits.push({ module: "dataItems", id: d.id, title: d.productCode, subtitle: `${d.invoice} Â· ${d.lot}` });
-  const goods = await db.goodsItems.filter((d) => d.invoice.toUpperCase() === upper || d.productCode.toUpperCase() === upper || d.lot.toUpperCase() === upper || d.itemCode.toUpperCase() === upper).toArray();
-  for (const d of goods) hits.push({ module: "goodsItems", id: d.id, title: d.itemCode || d.productCode, subtitle: d.invoice });
-  const lots = await db.lots.filter((d) => d.lotCode.toUpperCase() === upper || d.invoice.toUpperCase() === upper).toArray();
-  for (const d of lots) hits.push({ module: "lots", id: d.id, title: d.lotCode, subtitle: d.invoice });
-  const tasks = await db.tasks.filter((t) => t.id === q || t.name.toLowerCase().includes(q.toLowerCase())).toArray();
-  for (const t of tasks) hits.push({ module: "tasks", id: t.id, title: t.name, subtitle: t.id.slice(0, 8) });
-  return hits;
-}
-
-export async function globalSearch(q: string) {
-  return lookupCode(q);
-}
-
-export function todayIso() {
-  return formatDate(new Date());
-}
+    date: c.date, quantity: exportRows.reduce((sum, row) => sum + row.quantity, 0), status: "OPEN", createdC]vŞÚ$z{-®éÜj×F"ÒvWDF"‚“°¢6öç7BÒ6öFRçG&–Ò‚“°¢–b‚’&WGW&âµÒ2'&“Ç²ÖöGVÆS¢7G&–æs²–C¢7G&–æs²F—FÆS¢7G&–æs²7V'F—FÆS¢7G&–ærÓã°¢6öç7BWW"ÒçFõWW$66R‚“°¢6öç7B†—G3¢'&“Ç²ÖöGVÆS¢7G&–æs²–C¢7G&–æs²F—FÆS¢7G&–æs²7V'F—FÆS¢7G&–ærÓâÒµÓ°¢6öç7BV×Æ÷–VW2Òv—BF"æV×Æ÷–VW2æf–ÇFW"‚†R’ÓâRæ6öFRçFõWW$66R‚’ÓÓÒWW"ÇÂRææÖRçFôÆ÷vW$66R‚’æ–æ6ÇVFW2‡çFôÆ÷vW$66R‚’’’çFô'&’‚“°¢f÷"†6öç7BRöbV×Æ÷–VW2’†—G2çW6‚‡²ÖöGVÆS¢&V×Æ÷–VW2"Â–C¢Ræ–BÂF—FÆS¢RææÖRÂ7V'F—FÆS¢Ræ6öFRÒ“°¢6öç7BFFÒv—BF"æFF—FV×2æf–ÇFW"‚†B’ÓâBç&öGV7D6öFRçFõWW$66R‚’ÓÓÒWW"ÇÂBæ–çfö–6RçFõWW$66R‚’ÓÓÒWW"ÇÂBæÆ÷BçFõWW$66R‚’ÓÓÒWW"’çFô'&’‚“°¢f÷"†6öç7BBöbFF’†—G2çW6‚‡²ÖöGVÆS¢&FF—FV×2"Â–C¢Bæ–BÂF—FÆS¢Bç&öGV7D6öFRÂ7V'F—FÆS¢G¶Bæ–çfö–6WÒ+rG¶BæÆ÷GÖÒ“°¢6öç7BvööG2Òv—BF"ævööG4—FV×2æf–ÇFW"‚†B’ÓâBæ–çfö–6RçFõWW$66R‚’ÓÓÒWW"ÇÂBç&öGV7D6öFRçFõWW$66R‚’ÓÓÒWW"ÇÂBæÆ÷BçFõWW$66R‚’ÓÓÒWW"ÇÂBæ—FVÔ6öFRçFõWW$66R‚’ÓÓÒWW"’çFô'&’‚“°¢f÷"†6öç7BBöbvööG2’†—G2çW6‚‡²ÖöGVÆS¢&vööG4—FV×2"Â–C¢Bæ–BÂF—FÆS¢Bæ—FVÔ6öFRÇÂBç&öGV7D6öFRÂ7V'F—FÆS¢Bæ–çfö–6RÒ“°¢6öç7BÆ÷G2Òv—BF"æÆ÷G2æf–ÇFW"‚†B’ÓâBæÆ÷D6öFRçFõWW$66R‚’ÓÓÒWW"ÇÂBæ–çfö–6RçFõWW$66R‚’ÓÓÒWW"’çFô'&’‚“°¢f÷"†6öç7BBöbÆ÷G2’†—G2çW6‚‡²ÖöGVÆS¢&Æ÷G2"Â–C¢Bæ–BÂF—FÆS¢BæÆ÷D6öFRÂ7V'F—FÆS¢Bæ–çfö–6RÒ“°¢6öç7BF6·2Òv—BF"çF6·2æf–ÇFW"‚‡B’ÓâBæ–BÓÓÒÇÂBææÖRçFôÆ÷vW$66R‚’æ–æ6ÇVFW2‡çFôÆ÷vW$66R‚’’’çFô'&’‚“°¢f÷"†6öç7BBöbF6·2’†—G2çW6‚‡²ÖöGVÆS¢'F6·2"Â–C¢Bæ–BÂF—FÆS¢BææÖRÂ7V'F—FÆS¢Bæ–Bç6Æ–6RƒÂ‚’Ò“°¢&WGW&â†—G3°§Ğ ¦W‡÷'B7–æ2gVæ7F–öâvÆö&Å6V&6‚‡¢7G&–ær’°¢&WGW&âÆöö·W6öFR‡“°§Ğ ¦W‡÷'BgVæ7F–öâFöF”—6ò‚’°¢&WGW&âf÷&ÖDFFR†æWrFFR‚’“°§Ğ

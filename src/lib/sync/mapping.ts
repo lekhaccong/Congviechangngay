@@ -42,7 +42,7 @@ export async function toCloud(entityType: SyncEntityType, value: unknown): Promi
   }
   if (entityType === "abnormalities") {
     const row = value as Abnormality;
-    return { id: row.id, abnormal_type: row.type, description: row.description, severity: row.severity, detected_by: row.detectedBy, detected_at: new Date(row.detectedAt).toISOString(), handler_id: row.handlerId, deadline: row.deadline ? new Date(row.deadline).toISOString() : null, status: row.status, linked_module: row.linkedModule, linked_id: row.linkedId, client_created_at: new Date(row.createdAt).toISOString(), client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
+    return { id: row.id, abnormal_type: row.type, description: row.description, severity: row.severity, detected_by: row.detectedBy, detected_at: new Date(row.detectedAt).toISOString(), handler_id: row.handlerId, deadline: row.deadline ? new Date(row.deadline).toISOString() : null, status: row.status, linked_module: row.linkedModule, linked_id: row.linkedId, work_block_id: row.workBlockId ?? null, task_id: row.taskId ?? null, work_date: row.date ?? null, manager_shift_id: row.shiftId ?? null, client_created_at: new Date(row.createdAt).toISOString(), client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
   }
   if (entityType === "abnormal_photos") {
     const row = value as Photo; const blob = await getDb().blobs.get(row.blobId);
@@ -118,7 +118,7 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
   } else if (entityType === "checklist_items") {
     await db.checklistItems.put({ id: row.id, checklistId: row.checklist_id, taskId: row.task_id, threeSId: null, label: row.label, done: row.done, completedAt: millis(row.completed_at), completedBy: row.completed_by, photoId: null, note: row.note ?? "", order: row.sort_order });
   } else if (entityType === "abnormalities") {
-    await db.abnormalities.put({ id: row.id, type: row.abnormal_type, description: row.description ?? "", severity: row.severity, detectedBy: row.detected_by ?? "Cloud", detectedAt: millis(row.detected_at) ?? Date.now(), handlerId: row.handler_id, deadline: millis(row.deadline), status: row.status, linkedModule: row.linked_module, linkedId: row.linked_id, createdAt: millis(row.client_created_at) ?? millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
+    await db.abnormalities.put({ id: row.id, type: row.abnormal_type, description: row.description ?? "", severity: row.severity, detectedBy: row.detected_by ?? "Cloud", detectedAt: millis(row.detected_at) ?? Date.now(), handlerId: row.handler_id, deadline: millis(row.deadline), status: row.status, linkedModule: row.linked_module, linkedId: row.linked_id, workBlockId: row.work_block_id, taskId: row.task_id, date: row.work_date, shiftId: row.manager_shift_id, createdAt: millis(row.client_created_at) ?? millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
   } else if (entityType === "abnormal_photos" || entityType === "goods_photos") {
     const current = await db.photos.get(row.id);
     if (current && current.storagePath === row.storage_path && await db.blobs.get(current.blobId)) return;

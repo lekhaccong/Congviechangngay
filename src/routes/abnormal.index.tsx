@@ -14,6 +14,8 @@ export const Route = createFileRoute("/abnormal/")({ component: AbnormalPage });
 function AbnormalPage() {
   const rows = useRows(() => getDb().abnormalities.reverse().sortBy("detectedAt"));
   const people = useRows(() => getDb().employees.toArray());
+  const blocks = useRows(() => getDb().workBlocks.toArray());
+  const tasks = useRows(() => getDb().tasks.toArray());
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | AbnormalStatus>("all");
   const shown = rows.filter((r) => filter === "all" || r.status === filter);
@@ -42,6 +44,8 @@ function AbnormalPage() {
         <ul className="space-y-2">
           {shown.map((a) => {
             const who = people.find((p) => p.id === a.detectedBy);
+            const block = blocks.find((row) => row.id === a.workBlockId);
+            const task = tasks.find((row) => row.id === a.taskId);
             return (
               <li key={a.id}>
                 <Link
@@ -56,6 +60,7 @@ function AbnormalPage() {
                       <p className="mt-1 text-xs text-muted">
                         {who?.name} · {SEVERITY_LABEL[a.severity]}
                       </p>
+                      <p className="mt-1 text-xs text-muted">{block?.name ?? "Chưa rõ khối"}{task ? ` · ${task.name}` : " · Bất thường chung"}</p>
                     </div>
                     <AbnormalBadge status={a.status} />
                   </div>

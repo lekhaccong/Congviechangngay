@@ -13,6 +13,8 @@ import { PROGRESS_STEPS } from "@/lib/cvp/progress";
 import { formatDateTime } from "@/lib/cvp/time";
 import { can } from "@/lib/cvp/permissions";
 import { useAppStore } from "@/lib/cvp/store";
+import { AbnormalDialog } from "@/components/cvp/abnormal-dialog";
+import { AbnormalBadge } from "@/components/cvp/status-badge";
 
 export const Route = createFileRoute("/tasks/$id")({ component: TaskDetail });
 
@@ -37,6 +39,8 @@ function TaskDetail() {
     return getDb().checklistItems.filter((i) => ids.includes(i.checklistId) && (i.taskId === null || i.taskId === id)).toArray();
   }, [checklist, id]);
   const [note, setNote] = useState<string | null>(null);
+  const [abnormalOpen, setAbnormalOpen] = useState(false);
+  const abnormalities = useRows(() => getDb().abnormalities.filter((row) => row.taskId === id || (row.linkedModule === "tasks" && row.linkedId === id)).toArray(), [id]);
 
   if (!task) return <p className="text-muted">Không tìm thấy công việc.</p>;
   const who = people.find((p) => p.id === task.assigneeId);
@@ -63,15 +67,24 @@ function TaskDetail() {
           step={5}
           value={task.progress}
           className="w-full accent-primary"
-          onChange={(e) => void setTaskProgress(id, Number(e.target.value))}
+          disabled={!can(role, "execute")}
+          onChange={(e) => void saveProgress(Number(e.target.value))}
         />
         <div className="mt-3 grid grid-cols-5 gap-2">
           {PROGRESS_STEPS.map((p) => (
-            <Button key={p} size="sm" variant={task.progress === p ? "default" : "secondary"} onClick={() => void setTaskProgress(id, p)}>
+            <Button key={p} size="sm" disabled={!can(role, "execute")} variant={task.progress === p ? "default" : "secondary"} onClick={() => void saveProgress(p)}>
               {p}%
             </Button>
           ))}
         </div>
+      </section>
+
+      <section className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
+        <div className="flex items-center justify-between gap-3">
+          <div><h2 className="font-medium">Bất thường</h2><p className="text-sm text-muted">{abnormalities.filter((row) => row.status !== "CLOSED").length} chưa đóng</p></div>
+          {can(role, "execute") ? <Button variant="danger" size="sm" onClick={() => setAbnormalOpen(true)}>Báo bất thường</Button> : null}
+        </div>
+        {abnormalities.length ? <ul className="mt-3 space-y-2">{abnormalities.map((row) => <li key={row.id} className="flex items-center justify-between gap-2 rounded-lg bg-surface-2 p-3"><span className="line-clamp-1 text-sm">{row.description}</span><AbnormalBadge status={row.status} /></li>)}</ul> : null}
       </section>
 
       <section className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
@@ -136,8 +149,23 @@ function TaskDetail() {
           Xóa công việc
         </Button>
       ) : null}
+      <AbnormalDialog open={abnormalOpen} onClose={() => setAbnormalOpen(false)} linkedModule="tasks" linkedId={id} />
     </div>
   );
+
+  async function saveProgress(progress: number) {
+    try {
+      await setTaskProgress(id, progress);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Không cập nhật được tiến độ";
+      if (progress >= 100 && can(role, "manage_tasks") && message.includes("bất thường chưa đóng") && confirm(`${message}. Quản lý vẫn xác nhận hoàn thành?`)) {
+        await setTaskProgress(id, progress, { allowOpenAbnormalities: true });
+        toast.success("Đã hoàn thành kèm cảnh báo bất thường");
+        return;
+      }
+      toast.error(message);
+    }
+  }
 }
 
 function labelAction(a: string) {
