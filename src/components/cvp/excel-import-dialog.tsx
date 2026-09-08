@@ -14,6 +14,7 @@ import {
 } from "@/lib/cvp/excel-import";
 import type { Employee, Shift } from "@/lib/cvp/types";
 import { planningWeek } from "@/lib/cvp/planning-week";
+import { formatDate } from "@/lib/cvp/time";
 
 const TITLES: Record<ExcelImportKind, string> = { people: "Nhập nhân sự từ Excel", data: "Nhập DATA từ Excel", export: "Nhập kế hoạch xuất hàng", air: "Nhập kế hoạch Hàng Air", sea: "Nhập kế hoạch Hàng xuất thường", ot: "Nhập OT từ Excel" };
 
@@ -53,8 +54,8 @@ export function ExcelImportDialog({
     } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể nhập dữ liệu"); }
     finally { setLoading(false); }
   };
-  const labels = kind === "people" ? ["SBD", "Họ tên", "Nhóm/Vị trí (cột D)"] : kind === "ot" ? ["SBD", "Họ tên", "Khung giờ"] : kind === "data" ? ["Mã SP", "Invoice", "Lot"] : ["Invoice", "Số kiện", "Ngày xuất"];
-  const values = (row: Record<string, unknown>) => kind === "people" ? [row.code, row.name, row.groupName] : kind === "ot" ? [row.code, row.name, `${row.startTime}–${row.endTime}`] : kind === "data" ? [row.productCode, row.invoice, row.lot] : [row.invoice, row.quantity, row.exportDate];
+  const labels = kind === "people" ? ["SBD", "Họ tên", "Nhóm/Vị trí (cột D)"] : kind === "ot" ? ["SBD", "Họ tên", "Khung giờ"] : kind === "data" ? ["Mã SP", "Invoice", "Ngày giao"] : ["Invoice", "Số kiện", "Ngày xuất"];
+  const values = (row: Record<string, unknown>) => kind === "people" ? [row.code, row.name, row.groupName] : kind === "ot" ? [row.code, row.name, `${row.startTime}–${row.endTime}`] : kind === "data" ? [row.productCode, row.invoice, typeof row.receivedAt === "number" ? formatDate(new Date(row.receivedAt)) : "—"] : [row.invoice, row.quantity, row.exportDate];
   return <Dialog open={open} onClose={onClose} title={TITLES[kind]} wide>
     <div className="space-y-3">
       <p className="text-sm text-muted">{(kind === "air" || kind === "sea") && week ? `Chỉ lấy kế hoạch tuần ${week.start}–${week.end}. ` : ""}Chọn file .xlsx hoặc .xlsm. Hệ thống đọc file ngay trên thiết bị và hiển thị bản xem trước trước khi lưu.</p>

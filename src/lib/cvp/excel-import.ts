@@ -102,6 +102,15 @@ function findColumn(row: Cell[], aliases: string[]): number {
   return row.findIndex((cell) => aliases.some((alias) => normalized(cell).includes(alias)));
 }
 
+/** Respect business priority between aliases instead of whichever column is leftmost. */
+function findPreferredColumn(row: Cell[], aliases: string[]): number {
+  for (const alias of aliases) {
+    const index = row.findIndex((cell) => normalized(cell).includes(alias));
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
 function parseTime(value: Cell | undefined): { startTime: string; endTime: string; type: string } | null {
   const raw = text(value);
   const match = raw.match(/(\d{1,2})\s*(?:h|:)\s*[-–—]\s*(\d{1,2})\s*(?:h|:)?/i);
@@ -134,7 +143,7 @@ function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
   let skipped = 0;
   const rows: ExportImportRow[] = [];
   for (const row of sheet.rows.slice(headerIndex + 1)) {
-    const dateCell = row?.[6] ?? row?.[dateCol];
+    const dateCell = row?.[dateCol] || row?.[6];
     if (dateCell) currentDate = toDate(dateCell, currentDate);
     const invoice = text(row?.[invoiceCol]);
     if (!invoice) continue;
@@ -260,7 +269,7 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const column = (...aliases: string[]) => findColumn(headers, aliases);
   const code = column("sbd", "ma nhan vien"); const name = column("ho va ten", "ho ten");
   const product = column("ma san pham", "ma hang"); const design = column("thiet ke"); const invoice = column("invoice", "invoi", "san pham co the xuat");
-  const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const deliveryDate = column("ngay giao", "ngay pc", "ngay xuat");
+  const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const deliveryDate = findPreferredColumn(headers, ["ngay giao", "ngay pc", "ngay xuat"]);
   const factory = column("nha may"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
   const position = column("vi tri"); const phone = column("dien thoai"); const group = column("nhom", "to", "group");
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
