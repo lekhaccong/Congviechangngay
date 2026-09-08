@@ -37,11 +37,17 @@ function GoodsPage() {
   // Tất cả bảng nghiệp vụ Hàng dùng chung ngày đang chọn ở đầu ứng dụng.
   // DATA lưu ngày dưới dạng timestamp; Hàng Air/Hàng xuất và Invoice lưu YYYY-MM-DD.
   const data = useRows(
-    () => getDb().dataItems.filter((item) => formatDate(new Date(item.receivedAt)) === date).reverse().sortBy("createdAt"),
+    () => getDb().dataItems.filter((item) => {
+      const deliveryDate = formatDate(new Date(item.receivedAt));
+      return deliveryDate === date || (deliveryDate < date && item.status !== "COMPLETED");
+    }).reverse().sortBy("createdAt"),
     [date],
   );
   const goods = useRows(
-    () => getDb().goodsItems.where("exportDate").equals(date).reverse().sortBy("createdAt"),
+    () => getDb().goodsItems.filter((item) => {
+      if (item.exportDate === date) return true;
+      return item.sourceKind === "AIR" && item.exportDate < date && item.status !== "COMPLETED";
+    }).reverse().sortBy("createdAt"),
     [date],
   );
   const lots = useRows(
@@ -141,7 +147,7 @@ function GoodsPage() {
                 <Link to="/goods/data/$id" params={{ id: d.id }} className="flex flex-1 items-center justify-between p-4" onClick={(event) => { if (!selecting) return; event.preventDefault(); setSelected((current) => { const next = new Set(current); next.has(d.id) ? next.delete(d.id) : next.add(d.id); return next; }); }}>
                   <div>
                     <p className="font-medium">{d.productCode}</p>
-                    <p className="font-mono text-xs text-muted">{d.invoice} · {d.lot} · SL {d.quantity}</p>
+                    <p className="font-mono text-xs text-muted">{d.invoice} · {d.lot} · Giao {formatDateVi(formatDate(new Date(d.receivedAt)))} · SL {d.quantity}</p>
                   </div>
                   <DataBadge status={d.status} />
                 </Link>
