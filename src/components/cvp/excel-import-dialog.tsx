@@ -54,7 +54,7 @@ export function ExcelImportDialog({
     } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể nhập dữ liệu"); }
     finally { setLoading(false); }
   };
-  const labels = kind === "people" ? ["SBD", "Họ tên", "Nhóm/Vị trí (cột D)"] : kind === "ot" ? ["SBD", "Họ tên", "Khung giờ"] : kind === "data" ? ["Mã SP", "Invoice", "Ngày giao"] : ["Invoice", "Số kiện", "Ngày xuất"];
+  const labels = kind === "people" ? ["SBD", "Họ tên", "Nhóm/Vị trí (cột D)"] : kind === "ot" ? ["SBD", "Họ tên", "Khung giờ"] : kind === "data" ? ["Mã SP", "Invoice", "Ngày theo dõi"] : ["Invoice", "Số kiện", "Ngày xuất"];
   const values = (row: Record<string, unknown>) => kind === "people" ? [row.code, row.name, row.groupName] : kind === "ot" ? [row.code, row.name, `${row.startTime}–${row.endTime}`] : kind === "data" ? [row.productCode, row.invoice, typeof row.receivedAt === "number" ? formatDate(new Date(row.receivedAt)) : "—"] : [row.invoice, row.quantity, row.exportDate];
   return <Dialog open={open} onClose={onClose} title={TITLES[kind]} wide>
     <div className="space-y-3">

@@ -128,7 +128,7 @@ function joinNote(parts: Array<string | null | undefined>): string {
   return parts.filter((part): part is string => Boolean(part?.trim())).join(" · ");
 }
 
-function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
+export function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
   const headerIndex = headerRow(sheet, ["ngay xuat", "invoice"]);
   if (headerIndex < 0) throw new Error("Không nhận diện được tiêu đề kế hoạch Air");
   const headers = sheet.rows[headerIndex] ?? [];
@@ -269,7 +269,12 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const column = (...aliases: string[]) => findColumn(headers, aliases);
   const code = column("sbd", "ma nhan vien"); const name = column("ho va ten", "ho ten");
   const product = column("ma san pham", "ma hang"); const design = column("thiet ke"); const invoice = column("invoice", "invoi", "san pham co the xuat");
-  const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const deliveryDate = findPreferredColumn(headers, ["ngay giao", "ngay pc", "ngay xuat"]);
+  const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs");
+  // File Shohindata thực tế dùng cột V làm ngày theo dõi các dòng chưa gửi:
+  // =IF(OR(B="",N="OK"),"1",TODAY()). Cột D là ngày PC cần QA DATA
+  // trong tương lai, không phải ngày dòng chưa gửi bắt đầu xuất hiện trên màn Hàng.
+  const pendingTrackingDate = normalized(headers[1]).includes("ma san pham") && normalized(headers[13]).includes("tinh trang") ? 21 : -1;
+  const deliveryDate = pendingTrackingDate >= 0 ? pendingTrackingDate : findPreferredColumn(headers, ["ngay giao", "ngay pc", "ngay xuat"]);
   const factory = column("nha may"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
   const position = column("vi tri"); const phone = column("dien thoai"); const group = column("nhom", "to", "group");
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
@@ -306,9 +311,7 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
       const productCode = text(row[product]);
       if (!productCode) { skipped++; continue; }
       const inv = text(row[invoice]);
-      // Màn Hàng theo dõi ngày giao kế hoạch. Cột "Thực tế/Nhận QA" có
-      // nghiệp vụ khác và từng làm DATA bị chuyển sang sai ngày.
-      rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[deliveryDate], fallbackDate)}T00:00:00`).getTime(), status: "NEW", note: `Nhập Shoindata · Cột N: Chưa gửi${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
+      rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[deliveryDate], fallbackDate)}T00:00:00`).getTime(), status: "NEW", note: `Nhập Shoindata · Cột N: Chưa gửi · Ngày theo dõi: cột V${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
     }
   }
   if (!rows.length) warnings.push(kind === "data" ? "Không có dòng nào trong Shoindata có cột N = Chưa gửi." : "Không có dòng hợp lệ để nhập; hãy kiểm tra sheet và nhà máy E.");
