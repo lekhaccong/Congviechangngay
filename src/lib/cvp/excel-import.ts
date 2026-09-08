@@ -134,7 +134,8 @@ function parseAirExport(sheet: Sheet, fallbackDate: string): ImportPreview {
   let skipped = 0;
   const rows: ExportImportRow[] = [];
   for (const row of sheet.rows.slice(headerIndex + 1)) {
-    if (row?.[6]) currentDate = toDate(row[6], currentDate);
+    const dateCell = row?.[6] ?? row?.[dateCol];
+    if (dateCell) currentDate = toDate(dateCell, currentDate);
     const invoice = text(row?.[invoiceCol]);
     if (!invoice) continue;
     const factory = text(row?.[factoryCol]);
@@ -259,8 +260,8 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
   const column = (...aliases: string[]) => findColumn(headers, aliases);
   const code = column("sbd", "ma nhan vien"); const name = column("ho va ten", "ho ten");
   const product = column("ma san pham", "ma hang"); const design = column("thiet ke"); const invoice = column("invoice", "invoi", "san pham co the xuat");
-  const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const planDate = column("ngay pc", "ngay xuat", "ngay giao");
-  const factory = column("nha may"); const actualDate = column("thuc te", "nhan qa"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
+  const lot = column("case no", "lot", "so lo"); const quantity = column("so kien", "so luong", "tong", "so luong acs"); const deliveryDate = column("ngay giao", "ngay pc", "ngay xuat");
+  const factory = column("nha may"); const work = column("cong viec"); const shift = column("ca gio", "ca ");
   const position = column("vi tri"); const phone = column("dien thoai"); const group = column("nhom", "to", "group");
   const rows: ImportRow[] = []; let skipped = 0; const warnings: string[] = [];
   const scheduleRows: ScheduleImportRow[] = [];
@@ -296,7 +297,9 @@ export async function previewExcelImport(file: File, kind: ExcelImportKind, fall
       const productCode = text(row[product]);
       if (!productCode) { skipped++; continue; }
       const inv = text(row[invoice]);
-      rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[actualDate >= 0 ? actualDate : planDate], fallbackDate)}T00:00:00`).getTime(), status: "NEW", note: `Nhập Shoindata · Cột N: Chưa gửi${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
+      // Màn Hàng theo dõi ngày giao kế hoạch. Cột "Thực tế/Nhận QA" có
+      // nghiệp vụ khác và từng làm DATA bị chuyển sang sai ngày.
+      rows.push({ productCode, designCode: text(row[design]), invoice: inv, lot: text(row[lot]) || text(row[design]) || inv, quantity: numberValue(row[quantity]), receivedAt: new Date(`${toDate(row[deliveryDate], fallbackDate)}T00:00:00`).getTime(), status: "NEW", note: `Nhập Shoindata · Cột N: Chưa gửi${factory >= 0 ? ` · NM ${text(row[factory])}` : ""}` });
     }
   }
   if (!rows.length) warnings.push(kind === "data" ? "Không có dòng nào trong Shoindata có cột N = Chưa gửi." : "Không có dòng hợp lệ để nhập; hãy kiểm tra sheet và nhà máy E.");
@@ -349,8 +352,16 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
 }
 
 export async function importData(rows: DataImportRow[]): Promise<{ created: number; updated: number }> {
-  const existing = await getDb().dataItems.toArray(); let created = 0; let updated = 0;
-  for (const row of rows) { const old = existing.find((item) => item.productCode === row.productCode && item.designCode === row.designCode && item.invoice === row.invoice && item.lot === row.lot); await upsertDataItem({ ...row, id: old?.id }); old ? updated++ : created++; }
+  const db = getDb();
+  const [existing, goods] = await Promise.all([db.dataItems.toArray(), db.goodsItems.toArray()]);
+  const plannedInvoices = new Set(goods.map((item) => normalizeInvoice(item.invoice)).filter(Boolean));
+  let created = 0; let updated = 0;
+  for (const row of rows) {
+    const old = existing.find((item) => item.productCode === row.productCode && item.designCode === row.designCode && item.invoice === row.invoice && item.lot === row.lot);
+    const matched = plannedInvoices.has(normalizeInvoice(row.invoice));
+    await upsertDataItem({ ...row, status: matched ? "COMPLETED" : row.status, id: old?.id });
+    old ? updated++ : created++;
+  }
   await writeAudit({ action: "IMPORT", module: "dataItems", recordId: "excel", newValue: { created, updated } }); return { created, updated };
 }
 
@@ -368,11 +379,24 @@ export async function importExport(rows: ExportImportRow[]): Promise<{ created: 
     old ? updated++ : created++;
     return { ...row, id: old?.id ?? nid(), createdAt: old?.createdAt ?? now, updatedAt: now };
   });
-  await db.transaction("rw", db.goodsItems, db.auditLogs, async () => {
+  const importedInvoices = new Set(toSave.map((item) => normalizeInvoice(item.invoice)).filter(Boolean));
+  const linkedData = (await db.dataItems.toArray()).filter((item) => item.status !== "COMPLETED" && importedInvoices.has(normalizeInvoice(item.invoice)));
+  await db.transaction("rw", db.goodsItems, db.dataItems, db.auditLogs, db.syncQueue, async () => {
     if (toSave.length) await db.goodsItems.bulkPut(toSave);
+    if (toSave.length) await db.syncQueue.bulkAdd(toSave.map((row) => makeSyncOperation("goods_items", row.id, "UPSERT", row)));
+    const completedAt = Date.now();
+    for (const item of linkedData) {
+      const completed = { ...item, status: "COMPLETED" as const, completedAt, updatedAt: completedAt };
+      await db.dataItems.put(completed);
+      await db.syncQueue.add(makeSyncOperation("data_items", completed.id, "UPSERT", completed));
+    }
     await writeAudit({ action: "IMPORT", module: "goodsItems", recordId: "excel", newValue: { created, updated } });
   });
   return { created, updated };
+}
+
+function normalizeInvoice(value: string): string {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
 }
 
 export async function importOt(rows: OtImportRow[], employees: Employee[], date: string, shiftId: string): Promise<{ created: number; skipped: number }> {

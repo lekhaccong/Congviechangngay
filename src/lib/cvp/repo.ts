@@ -763,6 +763,7 @@ export async function upsertGoods(data: Omit<GoodsItem, "id" | "createdAt" | "up
       await db.syncQueue.add(makeSyncOperation("goods_items", next.id, "UPSERT", next));
       await writeAudit({ action: "UPDATE", module: "goodsItems", recordId: next.id, oldValue: old, newValue: next });
     });
+    await completeDataForInvoice(next.invoice);
     return next;
   }
   const row: GoodsItem = { ...data, id: nid(), createdAt: now, updatedAt: now };
@@ -771,7 +772,25 @@ export async function upsertGoods(data: Omit<GoodsItem, "id" | "createdAt" | "up
     await db.syncQueue.add(makeSyncOperation("goods_items", row.id, "UPSERT", row));
     await writeAudit({ action: "CREATE", module: "goodsItems", recordId: row.id, newValue: row });
   });
+  await completeDataForInvoice(row.invoice);
   return row;
+}
+
+async function completeDataForInvoice(invoice: string): Promise<void> {
+  const normalized = invoice.trim().toUpperCase().replace(/\s+/g, "");
+  if (!normalized) return;
+  const db = getDb();
+  const linked = await db.dataItems.filter((item) => item.status !== "COMPLETED" && item.invoice.trim().toUpperCase().replace(/\s+/g, "") === normalized).toArray();
+  if (!linked.length) return;
+  const now = Date.now();
+  await db.transaction("rw", db.dataItems, db.auditLogs, db.syncQueue, async () => {
+    for (const item of linked) {
+      const next = { ...item, status: "COMPLETED" as const, completedAt: now, updatedAt: now };
+      await db.dataItems.put(next);
+      await db.syncQueue.add(makeSyncOperation("data_items", next.id, "UPSERT", next));
+      await writeAudit({ action: "UPDATE", module: "dataItems", recordId: next.id, oldValue: item, newValue: next });
+    }
+  });
 }
 
 export async function deleteGoods(id: string) {

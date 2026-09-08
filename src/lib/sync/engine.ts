@@ -131,7 +131,9 @@ async function ensureAbnormalSnapshot(): Promise<void> {
 
 async function ensureGoodsSnapshot(): Promise<void> {
   const db = getDb();
-  if (await db.syncState.get("goodsSnapshotQueued")) return;
+  // V2 repairs goods imported by older builds, whose bulk importer wrote to
+  // IndexedDB but accidentally omitted the sync queue.
+  if (await db.syncState.get("goodsSnapshotQueuedV2")) return;
   const [dataItems, goodsItems, lots, closures, photos] = await Promise.all([
     db.dataItems.filter((row) => !row.sample).toArray(),
     db.goodsItems.filter((row) => !row.sample).toArray(),
@@ -148,7 +150,7 @@ async function ensureGoodsSnapshot(): Promise<void> {
   ];
   await db.transaction("rw", db.syncQueue, db.syncState, async () => {
     if (operations.length) await db.syncQueue.bulkAdd(operations);
-    await db.syncState.put({ key: "goodsSnapshotQueued", value: String(Date.now()) });
+    await db.syncState.put({ key: "goodsSnapshotQueuedV2", value: String(Date.now()) });
   });
 }
 
