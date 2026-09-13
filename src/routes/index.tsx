@@ -178,7 +178,7 @@ function Dashboard() {
       </Link>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Quick to="/attendance" label="Kiểm tra đầu ca" />
+        <Quick to="/attendance" label="Chấm công" />
         <Quick to="/shift-log" label="Nhật ký ca" />
         <Quick to="/handover" label="Bàn giao" />
         <Quick to="/backup" label="Backup" />

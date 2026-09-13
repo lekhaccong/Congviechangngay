@@ -20,6 +20,7 @@ import type {
   Group,
   Handover,
   Lot,
+  MonthlyPayroll,
   Overtime,
   ScheduleAdjustment,
   Task,
@@ -169,6 +170,37 @@ export async function getEffectiveShiftCodeForEmployee(employeeId: string, date:
     db.scheduleAdjustments.where("[employeeId+date]").equals([employeeId, date]).toArray(),
   ]);
   return effectiveShiftCode(schedule, adjustments);
+}
+
+export async function upsertWorkSchedule(employeeId: string, date: string, shiftCode: BusinessShiftCode, source = "MANUAL") {
+  const db = getDb();
+  const existing = await db.workSchedules.where("[employeeId+date]").equals([employeeId, date]).first();
+  const now = Date.now();
+  const row = { id: existing?.id ?? nid(), employeeId, date, shiftCode, source, createdAt: existing?.createdAt ?? now, updatedAt: now };
+  await db.transaction("rw", db.workSchedules, db.auditLogs, db.syncQueue, async () => {
+    await db.workSchedules.put(row);
+    await db.syncQueue.add(makeSyncOperation("work_schedules", row.id, "UPSERT", row));
+    await writeAudit({ action: existing ? "UPDATE" : "CREATE", module: "workSchedules", recordId: row.id, oldValue: existing, newValue: row });
+  });
+  await refreshOtRatesForEmployees([employeeId], date);
+  return row;
+}
+
+export async function upsertMonthlyPayroll(employeeId: string, month: string, patch: Partial<MonthlyPayroll>) {
+  const db = getDb();
+  const existing = await db.monthlyPayroll.where("[employeeId+month]").equals([employeeId, month]).first();
+  const row: MonthlyPayroll = {
+    id: existing?.id ?? nid(), employeeId, month,
+    performanceScore: 0, attendanceAllowance: 0, responsibilityAllowance: 0,
+    salaryAllowance: 0, areaAllowance: 0, otherAllowance: 0, advance: 0,
+    settlementAdjustment: 0, note: "", ...existing, ...patch, updatedAt: Date.now(),
+  };
+  await db.transaction("rw", db.monthlyPayroll, db.auditLogs, db.syncQueue, async () => {
+    await db.monthlyPayroll.put(row);
+    await db.syncQueue.add(makeSyncOperation("monthly_payroll", row.id, "UPSERT", row));
+    await writeAudit({ action: existing ? "UPDATE" : "CREATE", module: "monthlyPayroll", recordId: row.id, oldValue: existing, newValue: row });
+  });
+  return row;
 }
 
 async function refreshOtRatesForEmployees(employeeIds: string[], date: string) {

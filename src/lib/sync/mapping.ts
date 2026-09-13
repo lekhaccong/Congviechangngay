@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/cvp/db";
-import type { Abnormality, Amh, Attendance, Checklist, ChecklistItem, DataItem, Employee, GoodsItem, Lot, LotClosure, Overtime, Photo, ScheduleAdjustment, SyncEntityType, Task, WorkBlock, WorkSchedule } from "@/lib/cvp/types";
+import type { Abnormality, Amh, Attendance, Checklist, ChecklistItem, DataItem, Employee, GoodsItem, Lot, LotClosure, MonthlyPayroll, Overtime, Photo, ScheduleAdjustment, SyncEntityType, Task, WorkBlock, WorkSchedule } from "@/lib/cvp/types";
 
 export async function toCloud(entityType: SyncEntityType, value: unknown): Promise<Record<string, unknown>> {
   if (entityType === "employees") {
@@ -23,6 +23,10 @@ export async function toCloud(entityType: SyncEntityType, value: unknown): Promi
   if (entityType === "amhs") {
     const row = value as Amh;
     return { id: row.id, employee_id: row.employeeId, work_date: row.date, manager_shift_id: row.shiftId, hours: row.hours, status: row.status, note: row.note, task_id: row.taskId, client_created_at: new Date(row.createdAt).toISOString(), deleted_at: null };
+  }
+  if (entityType === "monthly_payroll") {
+    const row = value as MonthlyPayroll;
+    return { id: row.id, employee_id: row.employeeId, month: row.month, performance_score: row.performanceScore, attendance_allowance: row.attendanceAllowance, responsibility_allowance: row.responsibilityAllowance, salary_allowance: row.salaryAllowance, area_allowance: row.areaAllowance, other_allowance: row.otherAllowance, advance: row.advance, settlement_adjustment: row.settlementAdjustment, note: row.note, client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
   }
   if (entityType === "work_blocks") {
     const row = value as WorkBlock;
@@ -90,6 +94,7 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
     else if (entityType === "attendance") await db.attendance.delete(row.id);
     else if (entityType === "overtimes") await db.overtimes.delete(row.id);
     else if (entityType === "amhs") await db.amhs.delete(row.id);
+    else if (entityType === "monthly_payroll") await db.monthlyPayroll.delete(row.id);
     else if (entityType === "work_blocks") await db.workBlocks.delete(row.id);
     else if (entityType === "checklists") await db.checklists.delete(row.id);
     else if (entityType === "tasks") await db.tasks.delete(row.id);
@@ -116,6 +121,8 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
     await db.overtimes.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftId: row.manager_shift_id, startTime: row.start_time, endTime: row.end_time, totalMinutes: row.total_minutes, type: row.ot_type, note: row.note ?? "", ratePercent: row.rate_percent ?? undefined, rateLabel: row.rate_label ?? undefined, attendanceConfirmedAt: millis(row.attendance_confirmed_at) ?? undefined, attendanceConfirmedBy: row.attendance_confirmed_by ?? undefined, createdAt: millis(row.client_created_at) ?? Date.now() });
   } else if (entityType === "amhs") {
     await db.amhs.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftId: row.manager_shift_id, hours: Number(row.hours), status: row.status, note: row.note ?? "", taskId: row.task_id ?? null, createdAt: millis(row.client_created_at) ?? Date.now() });
+  } else if (entityType === "monthly_payroll") {
+    await db.monthlyPayroll.put({ id: row.id, employeeId: row.employee_id, month: row.month, performanceScore: Number(row.performance_score), attendanceAllowance: Number(row.attendance_allowance), responsibilityAllowance: Number(row.responsibility_allowance), salaryAllowance: Number(row.salary_allowance), areaAllowance: Number(row.area_allowance), otherAllowance: Number(row.other_allowance), advance: Number(row.advance), settlementAdjustment: Number(row.settlement_adjustment), note: row.note ?? "", updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
   } else if (entityType === "work_blocks") {
     await db.workBlocks.put({ id: row.id, name: row.name, order: row.sort_order });
   } else if (entityType === "checklists") {

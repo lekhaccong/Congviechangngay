@@ -91,7 +91,8 @@ export type ModuleKey =
   | "abnormalities"
   | "notifications"
   | "settings"
-  | "handovers";
+  | "handovers"
+  | "monthlyPayroll";
 
 export interface Employee {
   id: string;
@@ -173,7 +174,23 @@ export interface Attendance {
   createdAt: number;
 }
 
-export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance" | "overtimes" | "amhs" | "work_blocks" | "checklists" | "tasks" | "checklist_items" | "abnormalities" | "abnormal_photos" | "data_items" | "goods_items" | "lots" | "lot_closures" | "goods_photos";
+export interface MonthlyPayroll {
+  id: string;
+  employeeId: string;
+  month: string;
+  performanceScore: number;
+  attendanceAllowance: number;
+  responsibilityAllowance: number;
+  salaryAllowance: number;
+  areaAllowance: number;
+  otherAllowance: number;
+  advance: number;
+  settlementAdjustment: number;
+  note: string;
+  updatedAt: number;
+}
+
+export type SyncEntityType = "employees" | "work_schedules" | "schedule_adjustments" | "attendance" | "overtimes" | "amhs" | "monthly_payroll" | "work_blocks" | "checklists" | "tasks" | "checklist_items" | "abnormalities" | "abnormal_photos" | "data_items" | "goods_items" | "lots" | "lot_closures" | "goods_photos";
 export type SyncOperationType = "UPSERT" | "DELETE";
 
 export interface SyncOperation {

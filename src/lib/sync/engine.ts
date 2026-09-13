@@ -7,7 +7,7 @@ import { makeSyncOperation } from "./queue";
 import { nid } from "@/lib/cvp/ids";
 import { liveQuery } from "dexie";
 
-const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs", "work_blocks", "checklists", "tasks", "checklist_items", "abnormalities", "abnormal_photos", "data_items", "goods_items", "lots", "lot_closures", "goods_photos"];
+const ENTITIES: SyncEntityType[] = ["employees", "work_schedules", "schedule_adjustments", "attendance", "overtimes", "amhs", "monthly_payroll", "work_blocks", "checklists", "tasks", "checklist_items", "abnormalities", "abnormal_photos", "data_items", "goods_items", "lots", "lot_closures", "goods_photos"];
 let running = false; let timer: number | null = null; let channel: ReturnType<NonNullable<typeof supabase>["channel"]> | null = null;
 let syncInFlight: Promise<void> | null = null;
 let syncRequestedWhileRunning = false;

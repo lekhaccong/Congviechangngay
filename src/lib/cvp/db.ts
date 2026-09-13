@@ -16,6 +16,7 @@ import type {
   Handover,
   Lot,
   LotClosure,
+  MonthlyPayroll,
   Overtime,
   Photo,
   Shift,
@@ -45,6 +46,7 @@ export class CvpDB extends Dexie {
   auditLogs!: Table<AuditLog, string>;
   overtimes!: Table<Overtime, string>;
   amhs!: Table<Amh, string>;
+  monthlyPayroll!: Table<MonthlyPayroll, string>;
   dataItems!: Table<DataItem, string>;
   goodsItems!: Table<GoodsItem, string>;
   lots!: Table<Lot, string>;
@@ -218,6 +220,16 @@ export class CvpDB extends Dexie {
         if (row.role === "LEADER") row.role = "MANAGER";
         if (row.role === "USER") row.role = "EMPLOYEE";
       });
+    });
+
+    this.version(9).stores({
+      employees: "id, code, groupId, shiftId, status, name", groups: "id, order", shifts: "id, order",
+      workSchedules: "id, employeeId, date, shiftCode, [employeeId+date]", scheduleAdjustments: "id, batchId, date, employeeId, status, [employeeId+date]",
+      attendance: "id, employeeId, date, shiftId, [employeeId+date+shiftId]", workBlocks: "id, order", tasks: "id, blockId, assigneeId, date, shiftId, status, deadline",
+      checklists: "id, blockId", checklistItems: "id, checklistId, taskId, threeSId, done", photos: "id, ownerModule, ownerId, createdAt", blobs: "id", auditLogs: "id, timestamp, module, recordId, date, shiftId, action", overtimes: "id, employeeId, date, shiftId", amhs: "id, employeeId, date, shiftId, status",
+      monthlyPayroll: "id, employeeId, month, [employeeId+month]",
+      dataItems: "id, productCode, invoice, lot, status", goodsItems: "id, invoice, productCode, lot, status, exportDate", lots: "id, lotCode, invoice, productCode, status, date", lotClosures: "id, lotId, closedAt", threeS: "id, date, shiftId", abnormalities: "id, status, detectedAt, linkedModule, linkedId", notifications: "id, dueAt, read", settings: "key", handovers: "id, date, shiftId",
+      syncQueue: "id, entityType, entityId, createdAt, nextRetryAt, [entityType+entityId]", syncState: "key", syncConflicts: "id, entityType, entityId, createdAt, resolvedAt",
     });
   }
 }

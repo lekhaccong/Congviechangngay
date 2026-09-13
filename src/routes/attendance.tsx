@@ -9,140 +9,57 @@ import { Field, Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { useAppStore } from "@/lib/cvp/store";
-import {
-  changeSchedule,
-  clearAttendanceConfirmation,
-  confirmAttendance,
-  confirmAttendanceOvertime,
-  markAbsent,
-  revertScheduleAdjustment,
-  swapSchedules,
-} from "@/lib/cvp/repo";
+import { changeSchedule, clearAttendanceConfirmation, confirmAttendance, confirmAttendanceOvertime, markAbsent, revertScheduleAdjustment, swapSchedules, upsertMonthlyPayroll, upsertWorkSchedule } from "@/lib/cvp/repo";
 import { can } from "@/lib/cvp/permissions";
 import { BUSINESS_SHIFT_RULES, effectiveShiftCode } from "@/lib/cvp/business-shifts";
-import type { BusinessShiftCode } from "@/lib/cvp/types";
+import { addDays, datesInRange, formatDateVi, startOfMonth, startOfWeek } from "@/lib/cvp/time";
+import { exportAttendanceWorkbook, monthBounds, payrollStats } from "@/lib/cvp/attendance-excel";
+import type { BusinessShiftCode, MonthlyPayroll } from "@/lib/cvp/types";
 
 export const Route = createFileRoute("/attendance")({ component: AttendancePage });
-
 const SHIFT_CODES = Object.keys(BUSINESS_SHIFT_RULES) as BusinessShiftCode[];
-const FALLBACK_BY_ORDER: Record<number, BusinessShiftCode> = {
-  1: "M", 2: "M1", 3: "X5", 4: "X", 5: "X3", 6: "A", 7: "D",
-};
+const SHIFT_BY_ORDER: Record<number, BusinessShiftCode> = { 1: "M", 2: "M1", 3: "X5", 4: "X", 5: "X3", 6: "A", 7: "D" };
+const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 
 function AttendancePage() {
-  const date = useAppStore((s) => s.selectedDate);
-  const shiftId = useAppStore((s) => s.selectedShiftId);
-  const role = useAppStore((s) => s.role);
-  const people = useRows(() => getDb().employees.orderBy("code").toArray());
+  const date = useAppStore((s) => s.selectedDate); const shiftId = useAppStore((s) => s.selectedShiftId); const role = useAppStore((s) => s.role);
+  const people = useRows(() => getDb().employees.orderBy("code").filter((row) => row.status === "ACTIVE").toArray());
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
-  const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
-  const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).reverse().sortBy("createdAt"), [date]);
-  const rows = useRows(() => getDb().attendance.filter((item) => item.date === date && (!shiftId || item.shiftId === shiftId)).toArray(), [date, shiftId]);
-  const ots = useRows(() => getDb().overtimes.where("date").equals(date).toArray(), [date]);
-  const [adjustOpen, setAdjustOpen] = useState(false);
-  const [kind, setKind] = useState<"CHANGE" | "SWAP">("CHANGE");
-  const [firstId, setFirstId] = useState("");
-  const [secondId, setSecondId] = useState("");
-  const [newCode, setNewCode] = useState<BusinessShiftCode>("M1");
-  const [reason, setReason] = useState("");
-  const [latePerson, setLatePerson] = useState<{ id: string; name: string; code: BusinessShiftCode } | null>(null);
-  const [lateMinutes, setLateMinutes] = useState("0");
-  const selectedShift = shifts.find((shift) => shift.id === shiftId);
-  const byEmp = new Map(rows.map((row) => [row.employeeId, row]));
-  const scheduleByEmp = new Map(schedules.map((schedule) => [schedule.employeeId, schedule]));
-  const actualCodeByEmp = new Map(people.map((person) => [person.id, effectiveShiftCode(scheduleByEmp.get(person.id), adjustments)]));
-  const scheduledPeople = people.filter((person) => scheduleByEmp.has(person.id) && person.status === "ACTIVE");
-  const onShift = schedules.length
-    ? scheduledPeople
-    : people.filter((person) => person.status === "ACTIVE" && (!shiftId || person.shiftId === shiftId));
-  const adjustmentBatches = useMemo(() => {
-    const map = new Map<string, typeof adjustments>();
-    for (const item of adjustments) map.set(item.batchId, [...(map.get(item.batchId) ?? []), item]);
-    return [...map.values()];
-  }, [adjustments]);
+  const [tab, setTab] = useState<"schedule" | "payroll">("schedule"); const [period, setPeriod] = useState<"week" | "month">("week");
+  const [periodDate, setPeriodDate] = useState(date); const [planningDate, setPlanningDate] = useState(date); const month = periodDate.slice(0, 7);
+  const bounds = period === "week" ? { from: startOfWeek(periodDate), to: addDays(startOfWeek(periodDate), 6) } : monthBounds(month);
+  const periodDates = datesInRange(bounds.from, bounds.to);
+  const schedules = useRows(() => getDb().workSchedules.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
+  const adjustments = useRows(() => getDb().scheduleAdjustments.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
+  const attendance = useRows(() => getDb().attendance.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
+  const overtimes = useRows(() => getDb().overtimes.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
+  const payroll = useRows(() => getDb().monthlyPayroll.where("month").equals(month).toArray(), [month]);
+  const [adjustOpen, setAdjustOpen] = useState(false); const [kind, setKind] = useState<"CHANGE" | "SWAP">("CHANGE");
+  const [firstId, setFirstId] = useState(""); const [secondId, setSecondId] = useState(""); const [newCode, setNewCode] = useState<BusinessShiftCode>("M1"); const [reason, setReason] = useState("");
+  const [latePerson, setLatePerson] = useState<{ id: string; name: string; code: BusinessShiftCode } | null>(null); const [lateMinutes, setLateMinutes] = useState("0");
+  const [payPerson, setPayPerson] = useState<{ id: string; name: string } | null>(null); const [payDraft, setPayDraft] = useState<Partial<MonthlyPayroll>>({});
+  const selectedShift = shifts.find((row) => row.id === shiftId); const currentSchedules = schedules.filter((row) => row.date === planningDate); const currentAdjustments = adjustments.filter((row) => row.date === planningDate);
+  const currentAttendance = attendance.filter((row) => row.date === planningDate); const currentOt = overtimes.filter((row) => row.date === planningDate);
+  const scheduleByEmployee = new Map(currentSchedules.map((row) => [row.employeeId, row])); const attendanceByEmployee = new Map(currentAttendance.map((row) => [row.employeeId, row]));
+  const defaultCode = (employeeId: string) => SHIFT_BY_ORDER[shifts.find((row) => row.id === people.find((person) => person.id === employeeId)?.shiftId)?.order ?? 0] ?? null;
+  const codeFor = (employeeId: string) => effectiveShiftCode(scheduleByEmployee.get(employeeId), currentAdjustments) ?? defaultCode(employeeId);
+  const totals = useMemo(() => ({ arrived: attendance.filter((row) => row.status === "PRESENT").length, late: attendance.filter((row) => row.status === "LATE").length, absent: schedules.filter((row) => !BUSINESS_SHIFT_RULES[row.shiftCode].working).length }), [attendance, schedules]);
+  const movePeriod = (step: number) => { const next = addDays(periodDate, step * (period === "week" ? 7 : 32)); setPeriodDate(next); setPlanningDate(period === "week" ? startOfWeek(next) : startOfMonth(next)); };
+  const saveAdjustment = async () => { try { if (!firstId) throw new Error("Hãy chọn nhân sự"); if (kind === "SWAP") await swapSchedules(firstId, secondId, planningDate, reason); else await changeSchedule(firstId, planningDate, newCode, reason); toast.success("Đã lưu đổi ca"); setAdjustOpen(false); } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể đổi ca"); } };
 
-  const saveAdjustment = async () => {
-    try {
-      if (!firstId) throw new Error("Hãy chọn nhân sự");
-      if (kind === "SWAP") await swapSchedules(firstId, secondId, date, reason);
-      else await changeSchedule(firstId, date, newCode, reason);
-      toast.success(kind === "SWAP" ? "Đã đổi ca cho hai người" : "Đã điều chỉnh ca");
-      setReason(""); setAdjustOpen(false);
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Không thể đổi ca"); }
-  };
+  return <div><PageHeader title="Chấm công" subtitle="Khai ca cho toàn bộ nhân sự theo tuần / tháng" action={can(role, "attendance") ? <Button size="sm" variant="secondary" onClick={() => { setFirstId(people[0]?.id ?? ""); setSecondId(people[1]?.id ?? ""); setAdjustOpen(true); }}>Đổi ca</Button> : null} />
+    <div className="mb-4 grid grid-cols-2 gap-2"><Button variant={tab === "schedule" ? "default" : "secondary"} onClick={() => setTab("schedule")}>1. Khai ca</Button><Button variant={tab === "payroll" ? "default" : "secondary"} onClick={() => { setTab("payroll"); setPeriod("month"); setPlanningDate(date); }}>2. Bảng công & OT</Button></div>
+    {tab === "schedule" ? <SchedulePanel {...{ people, period, setPeriod, periodDate, date, movePeriod, setPeriodDate, setPlanningDate, periodDates, planningDate, scheduleByEmployee, codeFor }} /> : <PayrollPanel {...{ month, setPeriodDate, setPlanningDate, selectedShift, totals, people, schedules, attendance, overtimes, payroll, attendanceByEmployee, codeFor, planningDate, shiftId, currentOt, setLatePerson, setLateMinutes, setPayPerson, setPayDraft }} />}
+    <Dialog open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Đổi ca" wide><div className="space-y-3"><div className="grid grid-cols-2 gap-2"><Button variant={kind === "CHANGE" ? "default" : "outline"} onClick={() => setKind("CHANGE")}>Một người</Button><Button variant={kind === "SWAP" ? "default" : "outline"} onClick={() => setKind("SWAP")}>Đổi cho nhau</Button></div><Field label="Nhân sự"><NativeSelect value={firstId} onChange={(e) => setFirstId(e.target.value)}>{people.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</NativeSelect></Field>{kind === "CHANGE" ? <Field label="Ca mới"><NativeSelect value={newCode} onChange={(e) => setNewCode(e.target.value as BusinessShiftCode)}>{SHIFT_CODES.map((code) => <option key={code}>{code} · {BUSINESS_SHIFT_RULES[code].label}</option>)}</NativeSelect></Field> : <Field label="Đổi với"><NativeSelect value={secondId} onChange={(e) => setSecondId(e.target.value)}>{people.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</NativeSelect></Field>}<Field label="Lý do"><Textarea value={reason} onChange={(e) => setReason(e.target.value)} /></Field><Button className="w-full" onClick={() => void saveAdjustment()}>Lưu đổi ca</Button>{adjustments.filter((row) => row.status === "ACTIVE").slice(-5).map((row) => <Button key={row.id} variant="outline" className="w-full" onClick={() => void revertScheduleAdjustment(row.batchId)}>Hoàn tác {row.originalShiftCode}→{row.adjustedShiftCode}</Button>)}</div></Dialog>
+    <Dialog open={Boolean(latePerson)} onClose={() => setLatePerson(null)} title="Ghi nhận đến muộn"><form className="space-y-3" onSubmit={async (e) => { e.preventDefault(); if (!latePerson || !shiftId) return; const value = Math.max(1, Math.round(Number(lateMinutes))); await confirmAttendance(latePerson.id, planningDate, shiftId, latePerson.code, value); setLatePerson(null); toast.success(`Đã ghi muộn ${value} phút`); }}><Field label="Số phút muộn"><Input type="number" min="1" value={lateMinutes} onChange={(e) => setLateMinutes(e.target.value)} /></Field><Button className="w-full">Lưu</Button></form></Dialog>
+    <Dialog open={Boolean(payPerson)} onClose={() => setPayPerson(null)} title={`Khoản tháng · ${payPerson?.name ?? ""}`} wide><form className="grid grid-cols-2 gap-3" onSubmit={async (e) => { e.preventDefault(); if (!payPerson) return; await upsertMonthlyPayroll(payPerson.id, month, payDraft); setPayPerson(null); toast.success("Đã lưu dữ liệu tháng"); }}>{[["performanceScore", "Điểm đánh giá"], ["attendanceAllowance", "Chuyên cần"], ["responsibilityAllowance", "PC trách nhiệm"], ["salaryAllowance", "PC lương"], ["areaAllowance", "PC khu vực"], ["otherAllowance", "PC khác"], ["advance", "Tạm ứng"], ["settlementAdjustment", "Điều chỉnh quyết toán"]].map(([key, label]) => <Field key={key} label={label}><Input type="number" value={String((payDraft as Record<string, unknown>)[key] ?? 0)} onChange={(e) => setPayDraft((old) => ({ ...old, [key]: Number(e.target.value) }))} /></Field>)}<div className="col-span-2"><Field label="Ghi chú"><Textarea value={payDraft.note ?? ""} onChange={(e) => setPayDraft((old) => ({ ...old, note: e.target.value }))} /></Field></div><Button className="col-span-2">Lưu dữ liệu tháng</Button></form></Dialog>
+  </div>;
+}
 
-  return (
-    <div>
-      <PageHeader
-        title="Chấm công"
-        subtitle={`${selectedShift?.name ?? "Ca hiện tại"} · khai ca cho ${onShift.length} nhân sự`}
-        action={can(role, "attendance") ? <Button size="sm" variant="secondary" onClick={() => { setFirstId(scheduledPeople[0]?.id ?? ""); setSecondId(scheduledPeople[1]?.id ?? ""); setAdjustOpen(true); }}>Đổi ca</Button> : null}
-      />
-      {onShift.length === 0 ? <EmptyState title="Không có nhân sự trong ca" hint="Kiểm tra ngày, ca đang chọn hoặc nhập lịch làm việc Excel." /> : (
-        <ul className="divide-y divide-border overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-          {onShift.map((person) => {
-            const rec = byEmp.get(person.id);
-            const code = actualCodeByEmp.get(person.id) ?? FALLBACK_BY_ORDER[selectedShift?.order ?? 2] ?? "M1";
-            const employeeOt = ots.filter((ot) => ot.employeeId === person.id);
-            const arrived = rec?.status === "PRESENT" || rec?.status === "LATE";
-            const shiftRule = BUSINESS_SHIFT_RULES[code];
-            return <li key={person.id} className="px-4 py-3">
-              <div className="flex items-start justify-between gap-2">
-                <div><p className="font-medium">{person.name}</p><p className="font-mono text-xs text-muted">{person.code} · {code} {shiftRule.startTime}–{shiftRule.endTime}</p></div>
-                {rec ? <AttendanceBadge status={rec.status} /> : <span className="text-xs text-muted">Chưa kiểm tra</span>}
-              </div>
-              {can(role, "attendance") && shiftRule.working && !shiftRule.dayOff ? <div className="mt-2 grid grid-cols-3 gap-2">
-                <Button size="sm" variant={arrived && !rec?.lateMinutes ? "secondary" : "default"} onClick={async () => {
-                  if (!shiftId) return toast.error("Chưa chọn ca quản lý");
-                  await confirmAttendance(person.id, date, shiftId, code, 0); toast.success(`${person.name}: đã đến đúng giờ`);
-                }}>Đã đến</Button>
-                <Button size="sm" variant={rec?.lateMinutes ? "secondary" : "outline"} onClick={() => { setLateMinutes(String(rec?.lateMinutes ?? 0)); setLatePerson({ id: person.id, name: person.name, code }); }}>Muộn {rec?.lateMinutes ?? 0}</Button>
-                {rec ? <Button size="sm" variant="outline" onClick={async () => { await clearAttendanceConfirmation(rec.id); toast.success("Đã bỏ xác nhận"); }}>Bỏ tích</Button>
-                  : <Button size="sm" variant="outline" onClick={async () => { await markAbsent(person.id, "Nghỉ / chưa đến đầu ca"); toast.success("Đã ghi chưa đến"); }}>Chưa đến</Button>}
-              </div> : null}
-              {shiftRule.dayOff || !shiftRule.working ? <p className="mt-2 text-xs text-muted">{shiftRule.label} · không yêu cầu tích Đã đến</p> : null}
-              {arrived && employeeOt.length ? <div className="mt-3 rounded-lg bg-surface-2 p-3">
-                <p className="mb-2 text-xs font-medium text-muted">OT cần kiểm tra</p>
-                {employeeOt.map((ot) => <div key={ot.id} className="flex items-center justify-between gap-2 py-1">
-                  <div><p className="text-sm">{ot.startTime}–{ot.endTime} · {ot.type}</p><p className="text-xs text-muted">{ot.rateLabel ?? "Chưa tính hệ số"}</p></div>
-                  {ot.attendanceConfirmedAt ? <span className="text-xs text-ok">Đã xác nhận</span> : <Button size="sm" variant="secondary" onClick={async () => { await confirmAttendanceOvertime(ot.id); toast.success("Đã xác nhận OT"); }}>Xác nhận OT</Button>}
-                </div>)}
-              </div> : null}
-            </li>;
-          })}
-        </ul>
-      )}
+function SchedulePanel({ people, period, setPeriod, date, movePeriod, setPeriodDate, setPlanningDate, periodDates, planningDate, scheduleByEmployee, codeFor }: any) {
+  return <><div className="mb-3 flex gap-2 overflow-x-auto pb-1"><Button variant="outline" onClick={() => movePeriod(-1)}>‹</Button><Button variant="secondary" onClick={() => { setPeriodDate(date); setPlanningDate(date); }}>Hôm nay</Button><Button variant="outline" onClick={() => movePeriod(1)}>›</Button><Button variant={period === "week" ? "default" : "secondary"} onClick={() => setPeriod("week")}>Tuần</Button><Button variant={period === "month" ? "default" : "secondary"} onClick={() => setPeriod("month")}>Tháng</Button></div><div className="mb-3 flex gap-2 overflow-x-auto pb-2">{periodDates.map((day: string) => <button key={day} className={`min-w-16 rounded-lg px-2 py-2 text-sm ${planningDate === day ? "bg-primary text-primary-foreground" : "bg-surface-2"}`} onClick={() => setPlanningDate(day)}>{formatDateVi(day).slice(0, 5)}</button>)}</div><p className="mb-2 text-sm text-muted">{formatDateVi(planningDate)} · {people.length} nhân sự. Chọn đủ ca làm hoặc chế độ nghỉ.</p>{people.length ? <ul className="divide-y divide-border overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">{people.map((person: any) => { const code = codeFor(person.id); const persisted = scheduleByEmployee.has(person.id); return <li key={person.id} className="grid grid-cols-[1fr_12rem] items-center gap-3 px-4 py-3"><div className="min-w-0"><p className="truncate font-medium">{person.name}</p><p className="font-mono text-xs text-muted">{person.code} · {person.position || "Chưa có vị trí"}</p></div><div><NativeSelect value={code ?? ""} onChange={async (event) => { await upsertWorkSchedule(person.id, planningDate, event.target.value as BusinessShiftCode); toast.success(`Đã khai ${event.target.value}`); }}><option value="" disabled>Chọn ca</option>{SHIFT_CODES.map((item) => <option key={item} value={item}>{item} · {BUSINESS_SHIFT_RULES[item].label}</option>)}</NativeSelect><p className="mt-1 text-right text-xs text-muted">{persisted ? "Đã khai" : code ? "Ca mặc định" : "Chưa khai"}</p></div></li>; })}</ul> : <EmptyState title="Chưa có nhân sự" />}</>;
+}
 
-      <Dialog open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Điều chỉnh lịch thực tế" wide>
-        <div className="space-y-3">
-          <p className="text-sm text-muted">Lịch Excel gốc được giữ nguyên. Điều chỉnh này có lịch sử và có thể hoàn tác.</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant={kind === "CHANGE" ? "default" : "outline"} onClick={() => setKind("CHANGE")}>Đổi ca một người</Button>
-            <Button variant={kind === "SWAP" ? "default" : "outline"} onClick={() => setKind("SWAP")}>Đổi ca cho nhau</Button>
-          </div>
-          <Field label="Nhân sự"><NativeSelect value={firstId} onChange={(event) => setFirstId(event.target.value)}>{scheduledPeople.map((person) => <option key={person.id} value={person.id}>{person.code} · {person.name} · {actualCodeByEmp.get(person.id)}</option>)}</NativeSelect></Field>
-          {kind === "CHANGE" ? <Field label="Chuyển sang ca"><NativeSelect value={newCode} onChange={(event) => setNewCode(event.target.value as BusinessShiftCode)}>{SHIFT_CODES.map((code) => <option key={code} value={code}>{code} · {BUSINESS_SHIFT_RULES[code].label}</option>)}</NativeSelect></Field>
-            : <Field label="Đổi ca với"><NativeSelect value={secondId} onChange={(event) => setSecondId(event.target.value)}>{scheduledPeople.map((person) => <option key={person.id} value={person.id}>{person.code} · {person.name} · {actualCodeByEmp.get(person.id)}</option>)}</NativeSelect></Field>}
-          <Field label="Lý do"><Textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: thay người nghỉ đột xuất" /></Field>
-          <Button className="w-full" onClick={() => void saveAdjustment()}>Lưu lịch thực tế</Button>
-          {adjustmentBatches.length ? <div className="border-t border-border pt-3"><p className="mb-2 text-sm font-medium">Lịch sử điều chỉnh</p>{adjustmentBatches.map((batch) => { const active = batch.some((item) => item.status === "ACTIVE"); return <div key={batch[0]!.batchId} className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-surface-2 p-3"><div className="text-sm">{batch.map((item) => `${people.find((person) => person.id === item.employeeId)?.name ?? item.employeeId}: ${item.originalShiftCode}→${item.adjustedShiftCode}`).join(" · ")}<p className="text-xs text-muted">{active ? "Đang áp dụng" : "Đã hoàn tác"} · {batch[0]!.reason || "Không ghi lý do"}</p></div>{active ? <Button size="sm" variant="outline" onClick={async () => { await revertScheduleAdjustment(batch[0]!.batchId); toast.success("Đã hoàn tác đổi ca"); }}>Hoàn tác</Button> : null}</div>; })}</div> : null}
-        </div>
-      </Dialog>
-      <Dialog open={Boolean(latePerson)} onClose={() => setLatePerson(null)} title="Ghi nhận đến muộn">
-        <form className="space-y-3" onSubmit={async (event) => {
-          event.preventDefault();
-          if (!latePerson || !shiftId) return;
-          const minutes = Math.max(0, Math.round(Number(lateMinutes)));
-          if (!Number.isFinite(minutes) || minutes <= 0) return toast.error("Hãy nhập số phút muộn lớn hơn 0");
-          await confirmAttendance(latePerson.id, date, shiftId, latePerson.code, minutes);
-          toast.success(`${latePerson.name}: muộn ${minutes} phút`);
-          setLatePerson(null);
-        }}>
-          <p className="text-sm text-muted">{latePerson?.name} · nhập số phút đến sau giờ bắt đầu ca.</p>
-          <Field label="Số phút muộn"><Input type="number" min="1" step="1" inputMode="numeric" value={lateMinutes} onChange={(event) => setLateMinutes(event.target.value)} autoFocus /></Field>
-          <Button type="submit" className="w-full">Lưu chấm công</Button>
-        </form>
-      </Dialog>
-    </div>
-  );
+function PayrollPanel({ month, setPeriodDate, setPlanningDate, selectedShift, totals, people, schedules, attendance, overtimes, payroll, attendanceByEmployee, codeFor, planningDate, shiftId, currentOt, setLatePerson, setLateMinutes, setPayPerson, setPayDraft }: any) {
+  return <><div className="mb-3 flex items-center gap-2"><Input type="month" value={month} onChange={(e) => { setPeriodDate(`${e.target.value}-01`); setPlanningDate(`${e.target.value}-01`); }} /><Button onClick={() => { exportAttendanceWorkbook({ month, employees: people, schedules, attendance, overtimes, payroll }); toast.success("Đã xuất bảng công và OT"); }}>Xuất Excel</Button></div><div className="mb-3 grid grid-cols-3 gap-2 rounded-xl bg-surface p-3 text-center shadow-[var(--shadow-border)]"><div><p className="text-xs text-muted">ĐÃ ĐẾN</p><p className="font-mono text-xl">{totals.arrived}</p></div><div><p className="text-xs text-muted">MUỘN</p><p className="font-mono text-xl">{totals.late}</p></div><div><p className="text-xs text-muted">NGHỈ</p><p className="font-mono text-xl">{totals.absent}</p></div></div><p className="mb-3 rounded-xl bg-surface-2 p-3 text-sm text-muted">Ca đang chọn: <b>{selectedShift?.name ?? "Tất cả"}</b>. Xuất Excel gồm toàn bộ nhân sự trong kỳ, bảng công, tổng hợp và OT.</p><ul className="space-y-3">{people.map((person: any) => { const rec = attendanceByEmployee.get(person.id); const code = codeFor(person.id); const rule = code ? BUSINESS_SHIFT_RULES[code as BusinessShiftCode] : null; const stats = payrollStats(person.id, schedules, attendance, overtimes); const pay = payroll.find((row: any) => row.employeeId === person.id); const allowances = (pay?.attendanceAllowance ?? 0) + (pay?.responsibilityAllowance ?? 0) + (pay?.salaryAllowance ?? 0) + (pay?.areaAllowance ?? 0) + (pay?.otherAllowance ?? 0) - (pay?.advance ?? 0) + (pay?.settlementAdjustment ?? 0); return <li key={person.id} className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]"><div className="flex items-start justify-between"><div><p className="font-medium">{person.name}</p><p className="font-mono text-xs text-muted">{person.code} · {person.position || "Chưa có vị trí"}</p></div>{rec ? <AttendanceBadge status={rec.status} /> : <span className="text-xs text-muted">Chưa chấm</span>}</div>{code && rule ? <><NativeSelect className="mt-3" value={code} onChange={(e) => void upsertWorkSchedule(person.id, planningDate, e.target.value as BusinessShiftCode)}>{SHIFT_CODES.map((item) => <option key={item} value={item}>{item} {BUSINESS_SHIFT_RULES[item].startTime}–{BUSINESS_SHIFT_RULES[item].endTime}</option>)}</NativeSelect>{rule.working && !rule.dayOff ? <div className="mt-2 grid grid-cols-3 gap-2"><Button size="sm" onClick={async () => { if (!shiftId) return toast.error("Chưa chọn ca quản lý"); await confirmAttendance(person.id, planningDate, shiftId, code, 0); }}>Đã đến</Button><Button size="sm" variant="outline" onClick={() => { setLatePerson({ id: person.id, name: person.name, code }); setLateMinutes(String(rec?.lateMinutes ?? 0)); }}>Muộn {rec?.lateMinutes ?? 0}</Button>{rec ? <Button size="sm" variant="outline" onClick={() => void clearAttendanceConfirmation(rec.id)}>Bỏ tích</Button> : <Button size="sm" variant="outline" onClick={() => void markAbsent(person.id, "Chưa đến")}>Chưa đến</Button>}</div> : <p className="mt-2 text-xs text-muted">{rule.label}</p>}</> : null}{rec && currentOt.filter((row: any) => row.employeeId === person.id).map((ot: any) => <div key={ot.id} className="mt-2 flex items-center justify-between rounded-lg bg-surface-2 p-2 text-sm"><span>{ot.startTime}–{ot.endTime} · {ot.rateLabel}</span>{ot.attendanceConfirmedAt ? <span className="text-ok">Đã xác nhận</span> : <Button size="sm" onClick={() => void confirmAttendanceOvertime(ot.id)}>Xác nhận OT</Button>}</div>)}<div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-sm"><span>Công {stats.dayWork + stats.nightWork} · OT {(stats.otDay + stats.otNight).toFixed(1)}h · Muộn {stats.lateMinutes}p</span><Button size="sm" variant="secondary" onClick={() => { setPayPerson({ id: person.id, name: person.name }); setPayDraft(pay ?? {}); }}>Đánh giá & khoản tháng</Button></div><p className="mt-1 text-xs text-muted">Điểm {pay?.performanceScore ?? 0} · Tổng khoản {money(allowances)}đ</p></li>; })}</ul></>;
 }
