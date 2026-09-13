@@ -326,17 +326,17 @@ export function buildPersonnelTemplate(now = new Date()): Blob {
     weekdays.push(weekdayVi(iso));
   }
 
-  const peopleHeader = ["STT", "SBD", "Họ và Tên", "Vị trí", "Điện thoại", "Nhóm", "Ca mặc định", "Ghi chú"];
+  const peopleHeader = ["STT", "SBD", "Họ và Tên", "Vị trí công việc", "Điện thoại", "Nhóm", "Ca mặc định", "Giờ bắt đầu", "Giờ kết thúc", "Ghi chú"];
   const peopleRows = [
     peopleHeader,
-    ["1", "00001", "Nguyễn Văn An", "Chief Leader", "", "Tổ thành phẩm E", "M", "Ví dụ — xóa dòng này rồi dán tổ thật"],
-    ["2", "00002", "Trần Thị Bình", "Leader", "", "Tổ thành phẩm E", "X", ""],
-    ["3", "00003", "Lê Văn Cường", "Sub-Leader", "", "Tổ thành phẩm E", "A", ""],
-    ["4", "00004", "Phạm Thị Dung", "Trainer I", "", "Tổ thành phẩm E", "M1", ""],
-    ["5", "00005", "Hoàng Văn Em", "Đóng Cont,IGHS", "", "Tổ thành phẩm E", "X", ""],
-    ["6", "00006", "Võ Thị Phương", "Lái Xe,IGHS", "", "Tổ thành phẩm E", "A", ""],
-    ["7", "00007", "Đặng Văn Giang", "Cấp,nhận hàng", "", "Tổ thành phẩm E", "X", ""],
-    ["8", "00008", "Bùi Thị Hoa", "IGHS", "", "Tổ thành phẩm E", "D", "Ca đêm D 22:00–06:00 qua ngày"],
+    ["1", "00001", "Nguyễn Văn An", "Chief Leader", "", "Tổ thành phẩm E", "M", "06:00", "14:00", "Ví dụ — xóa dòng này rồi dán tổ thật"],
+    ["2", "00002", "Trần Thị Bình", "Leader", "", "Tổ thành phẩm E", "X", "08:00", "17:00", ""],
+    ["3", "00003", "Lê Văn Cường", "Sub-Leader", "", "Tổ thành phẩm E", "A", "14:00", "22:00", ""],
+    ["4", "00004", "Phạm Thị Dung", "Trainer I", "", "Tổ thành phẩm E", "M1", "06:00", "15:00", ""],
+    ["5", "00005", "Hoàng Văn Em", "Đóng Cont,IGHS", "", "Tổ thành phẩm E", "X", "08:00", "17:00", ""],
+    ["6", "00006", "Võ Thị Phương", "Lái Xe,IGHS", "", "Tổ thành phẩm E", "A", "14:00", "22:00", ""],
+    ["7", "00007", "Đặng Văn Giang", "Cấp,nhận hàng", "", "Tổ thành phẩm E", "X", "08:00", "17:00", ""],
+    ["8", "00008", "Bùi Thị Hoa", "IGHS", "", "Tổ thành phẩm E", "D", "22:00", "06:00", "Ca đêm qua ngày"],
   ];
 
   const padLeft = ["", "", "", "", "", "Nam (*)", "Lái xe FEL"];
@@ -398,9 +398,9 @@ export function buildPersonnelTemplate(now = new Date()): Blob {
     ["TS = nghỉ thai sản"],
     ["O = nghỉ ốm"],
     [""],
-    ["Chấm công: tích Đã đến. Đến sau giờ bắt đầu ca → phút muộn (sửa tay được)."],
+    ["Chấm công: tích Đã đến nếu đúng giờ; nếu muộn thì nhập số phút đến sau giờ bắt đầu ca."],
     ["OT = làm thêm ngoài giờ ca. 22:00→01:00 = 3 giờ."],
-    ["AMH = giờ ca (M/M1/X/A/D…) + OT đã khai + điều chỉnh đã duyệt."],
+    ["AMH = giờ ca thực tế đã xác nhận - phút muộn + OT đã xác nhận + điều chỉnh đã duyệt."],
     [""],
     ["Không điền số điện thoại thật vào file mẫu."],
     ...isos.map((d, i) => [`Cột ${dateHeaders[i]} (${weekdays[i]}) = ${d}`]),
@@ -427,6 +427,8 @@ export function buildPersonnelTemplate(now = new Date()): Blob {
     { wch: 14 },
     { wch: 20 },
     { wch: 12 },
+    { wch: 13 },
+    { wch: 13 },
     { wch: 36 },
   ];
   XLSX.utils.book_append_sheet(wb, wideSheet, "Lịch tổ");

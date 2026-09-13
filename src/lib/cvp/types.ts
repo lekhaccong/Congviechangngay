@@ -166,6 +166,7 @@ export interface Attendance {
   otMinutes: number;
   note: string;
   actualShiftCode?: BusinessShiftCode;
+  lateMinutes?: number;
   confirmedAt?: number;
   confirmedBy?: string;
   sample?: boolean;

@@ -5,7 +5,7 @@ import { PageHeader, EmptyState } from "@/components/cvp/page-header";
 import { AttendanceBadge } from "@/components/cvp/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, NativeSelect, Textarea } from "@/components/ui/input";
+import { Field, Input, NativeSelect, Textarea } from "@/components/ui/input";
 import { useRows } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { useAppStore } from "@/lib/cvp/store";
@@ -19,12 +19,12 @@ import {
   swapSchedules,
 } from "@/lib/cvp/repo";
 import { can } from "@/lib/cvp/permissions";
-import { BUSINESS_SHIFT_RULES, effectiveShiftCode, scheduleMatchesManagerShift } from "@/lib/cvp/business-shifts";
+import { BUSINESS_SHIFT_RULES, effectiveShiftCode } from "@/lib/cvp/business-shifts";
 import type { BusinessShiftCode } from "@/lib/cvp/types";
 
 export const Route = createFileRoute("/attendance")({ component: AttendancePage });
 
-const SHIFT_CODES = Object.keys(BUSINESS_SHIFT_RULES).filter((code) => code !== "P") as BusinessShiftCode[];
+const SHIFT_CODES = Object.keys(BUSINESS_SHIFT_RULES) as BusinessShiftCode[];
 const FALLBACK_BY_ORDER: Record<number, BusinessShiftCode> = {
   1: "M", 2: "M1", 3: "X5", 4: "X", 5: "X3", 6: "A", 7: "D",
 };
@@ -45,16 +45,15 @@ function AttendancePage() {
   const [secondId, setSecondId] = useState("");
   const [newCode, setNewCode] = useState<BusinessShiftCode>("M1");
   const [reason, setReason] = useState("");
+  const [latePerson, setLatePerson] = useState<{ id: string; name: string; code: BusinessShiftCode } | null>(null);
+  const [lateMinutes, setLateMinutes] = useState("0");
   const selectedShift = shifts.find((shift) => shift.id === shiftId);
   const byEmp = new Map(rows.map((row) => [row.employeeId, row]));
   const scheduleByEmp = new Map(schedules.map((schedule) => [schedule.employeeId, schedule]));
   const actualCodeByEmp = new Map(people.map((person) => [person.id, effectiveShiftCode(scheduleByEmp.get(person.id), adjustments)]));
   const scheduledPeople = people.filter((person) => scheduleByEmp.has(person.id) && person.status === "ACTIVE");
   const onShift = schedules.length
-    ? scheduledPeople.filter((person) => {
-        const code = actualCodeByEmp.get(person.id);
-        return code ? scheduleMatchesManagerShift(code, selectedShift) : false;
-      })
+    ? scheduledPeople
     : people.filter((person) => person.status === "ACTIVE" && (!shiftId || person.shiftId === shiftId));
   const adjustmentBatches = useMemo(() => {
     const map = new Map<string, typeof adjustments>();
@@ -75,8 +74,8 @@ function AttendancePage() {
   return (
     <div>
       <PageHeader
-        title="Kiểm tra đầu ca"
-        subtitle={`${selectedShift?.name ?? "Ca hiện tại"} · ${onShift.length} nhân sự theo lịch thực tế`}
+        title="Chấm công"
+        subtitle={`${selectedShift?.name ?? "Ca hiện tại"} · khai ca cho ${onShift.length} nhân sự`}
         action={can(role, "attendance") ? <Button size="sm" variant="secondary" onClick={() => { setFirstId(scheduledPeople[0]?.id ?? ""); setSecondId(scheduledPeople[1]?.id ?? ""); setAdjustOpen(true); }}>Đổi ca</Button> : null}
       />
       {onShift.length === 0 ? <EmptyState title="Không có nhân sự trong ca" hint="Kiểm tra ngày, ca đang chọn hoặc nhập lịch làm việc Excel." /> : (
@@ -85,20 +84,23 @@ function AttendancePage() {
             const rec = byEmp.get(person.id);
             const code = actualCodeByEmp.get(person.id) ?? FALLBACK_BY_ORDER[selectedShift?.order ?? 2] ?? "M1";
             const employeeOt = ots.filter((ot) => ot.employeeId === person.id);
-            const arrived = rec?.status === "PRESENT";
+            const arrived = rec?.status === "PRESENT" || rec?.status === "LATE";
+            const shiftRule = BUSINESS_SHIFT_RULES[code];
             return <li key={person.id} className="px-4 py-3">
               <div className="flex items-start justify-between gap-2">
-                <div><p className="font-medium">{person.name}</p><p className="font-mono text-xs text-muted">{person.code} · ca thực tế {code}</p></div>
+                <div><p className="font-medium">{person.name}</p><p className="font-mono text-xs text-muted">{person.code} · {code} {shiftRule.startTime}–{shiftRule.endTime}</p></div>
                 {rec ? <AttendanceBadge status={rec.status} /> : <span className="text-xs text-muted">Chưa kiểm tra</span>}
               </div>
-              {can(role, "attendance") ? <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button size="sm" variant={arrived ? "secondary" : "default"} disabled={arrived} onClick={async () => {
+              {can(role, "attendance") && shiftRule.working && !shiftRule.dayOff ? <div className="mt-2 grid grid-cols-3 gap-2">
+                <Button size="sm" variant={arrived && !rec?.lateMinutes ? "secondary" : "default"} onClick={async () => {
                   if (!shiftId) return toast.error("Chưa chọn ca quản lý");
-                  await confirmAttendance(person.id, date, shiftId, code); toast.success(`${person.name}: đã đến`);
-                }}>✓ Đã đến</Button>
+                  await confirmAttendance(person.id, date, shiftId, code, 0); toast.success(`${person.name}: đã đến đúng giờ`);
+                }}>Đã đến</Button>
+                <Button size="sm" variant={rec?.lateMinutes ? "secondary" : "outline"} onClick={() => { setLateMinutes(String(rec?.lateMinutes ?? 0)); setLatePerson({ id: person.id, name: person.name, code }); }}>Muộn {rec?.lateMinutes ?? 0}</Button>
                 {rec ? <Button size="sm" variant="outline" onClick={async () => { await clearAttendanceConfirmation(rec.id); toast.success("Đã bỏ xác nhận"); }}>Bỏ tích</Button>
                   : <Button size="sm" variant="outline" onClick={async () => { await markAbsent(person.id, "Nghỉ / chưa đến đầu ca"); toast.success("Đã ghi chưa đến"); }}>Chưa đến</Button>}
               </div> : null}
+              {shiftRule.dayOff || !shiftRule.working ? <p className="mt-2 text-xs text-muted">{shiftRule.label} · không yêu cầu tích Đã đến</p> : null}
               {arrived && employeeOt.length ? <div className="mt-3 rounded-lg bg-surface-2 p-3">
                 <p className="mb-2 text-xs font-medium text-muted">OT cần kiểm tra</p>
                 {employeeOt.map((ot) => <div key={ot.id} className="flex items-center justify-between gap-2 py-1">
@@ -125,6 +127,21 @@ function AttendancePage() {
           <Button className="w-full" onClick={() => void saveAdjustment()}>Lưu lịch thực tế</Button>
           {adjustmentBatches.length ? <div className="border-t border-border pt-3"><p className="mb-2 text-sm font-medium">Lịch sử điều chỉnh</p>{adjustmentBatches.map((batch) => { const active = batch.some((item) => item.status === "ACTIVE"); return <div key={batch[0]!.batchId} className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-surface-2 p-3"><div className="text-sm">{batch.map((item) => `${people.find((person) => person.id === item.employeeId)?.name ?? item.employeeId}: ${item.originalShiftCode}→${item.adjustedShiftCode}`).join(" · ")}<p className="text-xs text-muted">{active ? "Đang áp dụng" : "Đã hoàn tác"} · {batch[0]!.reason || "Không ghi lý do"}</p></div>{active ? <Button size="sm" variant="outline" onClick={async () => { await revertScheduleAdjustment(batch[0]!.batchId); toast.success("Đã hoàn tác đổi ca"); }}>Hoàn tác</Button> : null}</div>; })}</div> : null}
         </div>
+      </Dialog>
+      <Dialog open={Boolean(latePerson)} onClose={() => setLatePerson(null)} title="Ghi nhận đến muộn">
+        <form className="space-y-3" onSubmit={async (event) => {
+          event.preventDefault();
+          if (!latePerson || !shiftId) return;
+          const minutes = Math.max(0, Math.round(Number(lateMinutes)));
+          if (!Number.isFinite(minutes) || minutes <= 0) return toast.error("Hãy nhập số phút muộn lớn hơn 0");
+          await confirmAttendance(latePerson.id, date, shiftId, latePerson.code, minutes);
+          toast.success(`${latePerson.name}: muộn ${minutes} phút`);
+          setLatePerson(null);
+        }}>
+          <p className="text-sm text-muted">{latePerson?.name} · nhập số phút đến sau giờ bắt đầu ca.</p>
+          <Field label="Số phút muộn"><Input type="number" min="1" step="1" inputMode="numeric" value={lateMinutes} onChange={(event) => setLateMinutes(event.target.value)} autoFocus /></Field>
+          <Button type="submit" className="w-full">Lưu chấm công</Button>
+        </form>
       </Dialog>
     </div>
   );

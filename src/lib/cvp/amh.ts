@@ -51,8 +51,8 @@ export function calculateEmployeeAmh(input: {
     const bounds = shiftBounds(date, shiftCode);
     regularMinutes = Math.max(0, Math.round((Math.min(attendance.checkOut, bounds.end) - Math.max(attendance.checkIn, bounds.start)) / MINUTE));
     state = "CONFIRMED";
-  } else if (attendance?.status === "PRESENT" && attendance.confirmedAt) {
-    regularMinutes = planned;
+  } else if ((attendance?.status === "PRESENT" || attendance?.status === "LATE") && attendance.confirmedAt) {
+    regularMinutes = Math.max(0, planned - (attendance.lateMinutes ?? 0));
     state = "CONFIRMED";
   } else if (attendance?.checkIn) {
     state = "OPEN";

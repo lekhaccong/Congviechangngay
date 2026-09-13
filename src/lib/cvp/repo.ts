@@ -407,13 +407,16 @@ export async function markAbsent(employeeId: string, note: string) {
   return row;
 }
 
-export async function confirmAttendance(employeeId: string, date: string, shiftId: string, actualShiftCode: BusinessShiftCode) {
+export async function confirmAttendance(employeeId: string, date: string, shiftId: string, actualShiftCode: BusinessShiftCode, lateMinutes = 0) {
   const db = getDb(); const c = ctx();
   const existing = await db.attendance.where("[employeeId+date+shiftId]").equals([employeeId, date, shiftId]).first();
   const now = Date.now();
+  const late = Math.max(0, Math.round(lateMinutes));
+  const status: AttendanceStatus = late > 0 ? "LATE" : "PRESENT";
+  const note = late > 0 ? `Đến muộn ${late} phút` : "Đã đến đúng giờ";
   const row: Attendance = existing
-    ? { ...existing, status: "PRESENT", checkIn: null, checkOut: null, otMinutes: 0, note: "Đã đến đầu ca", actualShiftCode, confirmedAt: now, confirmedBy: c.userName }
-    : { id: nid(), employeeId, date, shiftId, checkIn: null, checkOut: null, status: "PRESENT", otMinutes: 0, note: "Đã đến đầu ca", actualShiftCode, confirmedAt: now, confirmedBy: c.userName, createdAt: now };
+    ? { ...existing, status, checkIn: null, checkOut: null, otMinutes: 0, note, actualShiftCode, lateMinutes: late, confirmedAt: now, confirmedBy: c.userName }
+    : { id: nid(), employeeId, date, shiftId, checkIn: null, checkOut: null, status, otMinutes: 0, note, actualShiftCode, lateMinutes: late, confirmedAt: now, confirmedBy: c.userName, createdAt: now };
   await db.transaction("rw", db.attendance, db.auditLogs, db.syncQueue, async () => {
     await db.attendance.put(row);
     await db.syncQueue.add(makeSyncOperation("attendance", row.id, "UPSERT", row));

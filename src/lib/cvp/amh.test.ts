@@ -65,3 +65,30 @@ test("điều chỉnh âm không làm AMH nhỏ hơn 0", () => {
   });
   assert.equal(result.totalMinutes, 0);
 });
+
+test("đến muộn bị trừ đúng số phút khỏi giờ ca AMH", () => {
+  const result = calculateEmployeeAmh({
+    date: "2026-09-13",
+    shiftCode: "M",
+    attendance: {
+      id: "attendance-late",
+      employeeId: "employee-1",
+      date: "2026-09-13",
+      shiftId: "shift-1",
+      checkIn: null,
+      checkOut: null,
+      status: "LATE",
+      otMinutes: 0,
+      note: "Đến muộn 15 phút",
+      actualShiftCode: "M",
+      lateMinutes: 15,
+      confirmedAt: Date.now(),
+      confirmedBy: "Quản lý",
+      createdAt: Date.now(),
+    },
+    overtimes: [],
+    adjustments: [],
+  });
+  assert.equal(result.regularMinutes, 465);
+  assert.equal(result.totalMinutes, 465);
+});
