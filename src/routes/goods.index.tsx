@@ -46,7 +46,7 @@ function GoodsPage() {
   const goods = useRows(
     () => getDb().goodsItems.filter((item) => {
       if (item.exportDate === date) return true;
-      return item.sourceKind === "AIR" && item.exportDate < date && item.status !== "COMPLETED";
+      return item.exportDate < date && item.status !== "COMPLETED";
     }).reverse().sortBy("createdAt"),
     [date],
   );
