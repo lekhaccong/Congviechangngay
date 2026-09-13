@@ -13,10 +13,16 @@ export const Route = createFileRoute("/mail")({ component: MailPage });
 
 function MailPage() {
   const userName = useAppStore((s) => s.currentUserName);
-  const lots = useRows(() => getDb().lots.filter((l) => l.status === "CLOSED").toArray());
-  const dataMissing = useRows(() => getDb().dataItems.filter((d) => d.status === "MISSING").toArray());
-  const goodsMissing = useRows(() => getDb().goodsItems.filter((g) => g.status === "MISSING").toArray());
-  const abs = useRows(() => getDb().abnormalities.filter((a) => a.status === "NEW" || a.status === "PROCESSING").toArray());
+  const lots = useRows(() => getDb().lots.where("status").equals("CLOSED").toArray());
+  const dataMissing = useRows(() => getDb().dataItems.where("status").equals("MISSING").toArray());
+  const goodsMissing = useRows(() => getDb().goodsItems.where("status").equals("MISSING").toArray());
+  const abs = useRows(async () => {
+    const [a, b] = await Promise.all([
+      getDb().abnormalities.where("status").equals("NEW").toArray(),
+      getDb().abnormalities.where("status").equals("PROCESSING").toArray(),
+    ]);
+    return a.concat(b);
+  });
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
 

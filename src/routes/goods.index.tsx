@@ -37,17 +37,27 @@ function GoodsPage() {
   // Tất cả bảng nghiệp vụ Hàng dùng chung ngày đang chọn ở đầu ứng dụng.
   // DATA lưu ngày dưới dạng timestamp; Hàng Air/Hàng xuất và Invoice lưu YYYY-MM-DD.
   const data = useRows(
-    () => getDb().dataItems.filter((item) => {
-      const deliveryDate = formatDate(new Date(item.receivedAt));
-      return deliveryDate === date || (deliveryDate < date && item.status !== "COMPLETED");
-    }).reverse().sortBy("createdAt"),
+    async () => {
+      // receivedAt chưa có index ngày: một lần toArray + filter vẫn nhanh hơn anyOf status (selectivity thấp).
+      const rows = await getDb().dataItems.toArray();
+      return rows
+        .filter((item) => {
+          const deliveryDate = formatDate(new Date(item.receivedAt));
+          return deliveryDate === date || (deliveryDate < date && item.status !== "COMPLETED");
+        })
+        .sort((a, b) => b.createdAt - a.createdAt);
+    },
     [date],
   );
   const goods = useRows(
-    () => getDb().goodsItems.filter((item) => {
-      if (item.exportDate === date) return true;
-      return item.exportDate < date && item.status !== "COMPLETED";
-    }).reverse().sortBy("createdAt"),
+    async () => {
+      // Benchmark: anyOf nhiều status (hầu hết bảng) chậm hơn full filter.
+      // where(exportDate) chỉ tối ưu khi chỉ lấy đúng một ngày.
+      const rows = await getDb().goodsItems.toArray();
+      return rows
+        .filter((item) => item.exportDate === date || (item.exportDate < date && item.status !== "COMPLETED"))
+        .sort((a, b) => b.createdAt - a.createdAt);
+    },
     [date],
   );
   const lots = useRows(

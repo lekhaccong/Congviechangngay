@@ -23,16 +23,16 @@ const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 
 function AttendancePage() {
   const date = useAppStore((s) => s.selectedDate); const shiftId = useAppStore((s) => s.selectedShiftId); const role = useAppStore((s) => s.role);
-  const people = useRows(() => getDb().employees.orderBy("code").filter((row) => row.status === "ACTIVE").toArray());
+  const people = useRows(() => getDb().employees.where("status").equals("ACTIVE").sortBy("code"));
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
   const [tab, setTab] = useState<"schedule" | "payroll">("schedule"); const [period, setPeriod] = useState<"week" | "month">("week");
   const [periodDate, setPeriodDate] = useState(date); const [planningDate, setPlanningDate] = useState(date); const month = periodDate.slice(0, 7);
   const bounds = period === "week" ? { from: startOfWeek(periodDate), to: addDays(startOfWeek(periodDate), 6) } : monthBounds(month);
   const periodDates = datesInRange(bounds.from, bounds.to);
-  const schedules = useRows(() => getDb().workSchedules.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
-  const adjustments = useRows(() => getDb().scheduleAdjustments.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
-  const attendance = useRows(() => getDb().attendance.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
-  const overtimes = useRows(() => getDb().overtimes.filter((row) => row.date >= bounds.from && row.date <= bounds.to).toArray(), [bounds.from, bounds.to]);
+  const schedules = useRows(() => getDb().workSchedules.where("date").between(bounds.from, bounds.to, true, true).toArray(), [bounds.from, bounds.to]);
+  const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").between(bounds.from, bounds.to, true, true).toArray(), [bounds.from, bounds.to]);
+  const attendance = useRows(() => getDb().attendance.where("date").between(bounds.from, bounds.to, true, true).toArray(), [bounds.from, bounds.to]);
+  const overtimes = useRows(() => getDb().overtimes.where("date").between(bounds.from, bounds.to, true, true).toArray(), [bounds.from, bounds.to]);
   const payroll = useRows(() => getDb().monthlyPayroll.where("month").equals(month).toArray(), [month]);
   const [adjustOpen, setAdjustOpen] = useState(false); const [kind, setKind] = useState<"CHANGE" | "SWAP">("CHANGE");
   const [firstId, setFirstId] = useState(""); const [secondId, setSecondId] = useState(""); const [newCode, setNewCode] = useState<BusinessShiftCode>("M1"); const [reason, setReason] = useState("");

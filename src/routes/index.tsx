@@ -26,28 +26,40 @@ function Dashboard() {
   const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
   const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).toArray(), [date]);
   const attendance = useRows(
-    () => getDb().attendance.filter((a) => a.date === date && (!shiftId || a.shiftId === shiftId)).toArray(),
+    async () => {
+      const rows = await getDb().attendance.where("date").equals(date).toArray();
+      return shiftId ? rows.filter((a) => a.shiftId === shiftId) : rows;
+    },
     [date, shiftId],
   );
   const tasks = useRows(
-    () => getDb().tasks.filter((t) => t.date === date && (!shiftId || t.shiftId === shiftId)).toArray(),
+    async () => {
+      const rows = await getDb().tasks.where("date").equals(date).toArray();
+      return shiftId ? rows.filter((t) => t.shiftId === shiftId) : rows;
+    },
     [date, shiftId],
   );
   const goods = useRows(
-    () => getDb().goodsItems.filter((g) => g.exportDate === date).toArray(),
+    () => getDb().goodsItems.where("exportDate").equals(date).toArray(),
     [date],
   );
   const dataItems = useRows(() => getDb().dataItems.toArray());
   const lots = useRows(
-    () => getDb().lots.filter((l) => l.date === date).toArray(),
+    () => getDb().lots.where("date").equals(date).toArray(),
     [date],
   );
   const ots = useRows(
-    () => getDb().overtimes.filter((o) => o.date === date).toArray(),
+    () => getDb().overtimes.where("date").equals(date).toArray(),
     [date],
   );
   const abs = useRows(
-    () => getDb().abnormalities.filter((a) => a.status === "NEW" || a.status === "PROCESSING").toArray(),
+    async () => {
+      const [a, b] = await Promise.all([
+        getDb().abnormalities.where("status").equals("NEW").toArray(),
+        getDb().abnormalities.where("status").equals("PROCESSING").toArray(),
+      ]);
+      return a.concat(b);
+    },
   );
 
   const selectedShift = shifts.find((shift) => shift.id === shiftId);

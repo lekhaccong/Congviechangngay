@@ -20,7 +20,11 @@ export function syncNativeReminders(): Promise<void> {
   const operation = queue.catch(() => {}).then(async () => {
     if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
     await channel();
-    const planned = planTaskReminders(await getDb().tasks.toArray(), Date.now());
+    const openTasks = await getDb()
+      .tasks.where("status")
+      .anyOf(["TODO", "IN_PROGRESS", "PAUSED", "OVERDUE"])
+      .toArray();
+    const planned = planTaskReminders(openTasks, Date.now());
     const pending = (await LocalNotifications.getPending()).notifications.filter((n) => n.extra?.cvpTask === true);
     const desired = new Map(planned.map((item) => [item.key, item]));
     const obsolete = pending.filter((n) => {
@@ -51,7 +55,10 @@ export function startNativeReminders() {
   const refresh = () => void syncNativeReminders().catch(() => {
     if (!warned) { warned = true; toast.error("Chưa hẹn được thông báo. Kiểm tra quyền trong Cài đặt."); }
   });
-  liveQuery(() => getDb().tasks.toArray()).subscribe({ next: refresh, error: () => refresh() });
+  // Chỉ theo dõi task chưa xong — completed tích lũy không kích hoạt full scan.
+  liveQuery(() =>
+    getDb().tasks.where("status").anyOf(["TODO", "IN_PROGRESS", "PAUSED", "OVERDUE"]).toArray(),
+  ).subscribe({ next: refresh, error: () => refresh() });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   void LocalNotifications.addListener("localNotificationActionPerformed", (event) => {
     const recordId = event.notification.extra?.recordId;

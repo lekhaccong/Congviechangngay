@@ -311,19 +311,24 @@ export function startSyncEngine(): () => void {
 
   // Local mutations always append to syncQueue. Observe that table so an
   // online edit is pushed immediately instead of waiting for resume/interval.
+  // Debounce nhẹ cùng ý UI (bulkPut queue liên tiếp trên Android); requestSync vẫn 150ms.
+  let queueLiveDebounce: number | null = null;
   const queueSubscription = liveQuery(() => getDb().syncQueue.count()).subscribe({
     next: (pending) => {
-      if (!pending) {
-        stopRecoveryProbe();
-        return;
-      }
-      if (!recoveryTimer) {
-        recoveryTimer = window.setInterval(() => { void recoverPendingWhenReachable(); }, 5_000);
-      }
-      void recoverPendingWhenReachable();
-      if (!navigator.onLine) return;
-      if (queueDebounce) window.clearTimeout(queueDebounce);
-      queueDebounce = window.setTimeout(() => { void requestSync(); }, 150);
+      if (queueLiveDebounce) window.clearTimeout(queueLiveDebounce);
+      queueLiveDebounce = window.setTimeout(() => {
+        if (!pending) {
+          stopRecoveryProbe();
+          return;
+        }
+        if (!recoveryTimer) {
+          recoveryTimer = window.setInterval(() => { void recoverPendingWhenReachable(); }, 5_000);
+        }
+        void recoverPendingWhenReachable();
+        if (!navigator.onLine) return;
+        if (queueDebounce) window.clearTimeout(queueDebounce);
+        queueDebounce = window.setTimeout(() => { void requestSync(); }, 150);
+      }, 50);
     },
     error: (error) => console.error("[sync queue]", error),
   });
@@ -339,6 +344,7 @@ export function startSyncEngine(): () => void {
     window.removeEventListener("pageshow", syncWhenVisible);
     document.removeEventListener("visibilitychange", syncWhenVisible);
     queueSubscription.unsubscribe();
+    if (queueLiveDebounce) window.clearTimeout(queueLiveDebounce);
     if (queueDebounce) window.clearTimeout(queueDebounce);
     stopRecoveryProbe();
     if (timer) clearInterval(timer);

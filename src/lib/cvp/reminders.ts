@@ -15,8 +15,11 @@ export async function tickReminders(): Promise<void> {
   const store = useAppStore.getState();
   if (!store.ready) return;
 
+  // deadline có index: hẹp theo hạn trước, rồi lọc status (tránh full table scan).
   const dueTasks = await db.tasks
-    .filter((t) => t.status !== "COMPLETED" && t.deadline !== null && t.deadline < now + 30 * 60_000)
+    .where("deadline")
+    .below(now + 30 * 60_000)
+    .filter((t) => t.status !== "COMPLETED" && t.deadline !== null)
     .toArray();
   for (const t of dueTasks) {
     const exists = await db.notifications
@@ -38,9 +41,11 @@ export async function tickReminders(): Promise<void> {
     if (!isNativeNotifications() || overdue) await notifyBrowser(overdue ? "Công việc quá hạn" : "Sắp đến hạn", t.name);
   }
 
-  const missingData = await db.dataItems
-    .filter((d) => d.status === "MISSING" || d.status === "NEW" || d.status === "PROCESSING")
-    .toArray();
+  const missingData = (
+    await Promise.all(
+      (["MISSING", "NEW", "PROCESSING"] as const).map((status) => db.dataItems.where("status").equals(status).toArray()),
+    )
+  ).flat();
   for (const d of missingData) {
     const exists = await db.notifications
       .filter((n) => n.recordId === d.id && n.module === "dataItems" && now - n.createdAt < 4 * 3600_000)
@@ -59,7 +64,11 @@ export async function tickReminders(): Promise<void> {
     await notifyBrowser(d.status === "MISSING" ? "DATA thiếu" : "DATA chưa hoàn thành", `${d.productCode} · ${d.invoice}`);
   }
 
-  const openLots = await db.lots.filter((l) => l.status !== "CLOSED").toArray();
+  const openLots = (
+    await Promise.all(
+      (["OPEN", "PROCESSING", "ENOUGH"] as const).map((status) => db.lots.where("status").equals(status).toArray()),
+    )
+  ).flat();
   for (const lot of openLots) {
     const exists = await db.notifications
       .filter((n) => n.recordId === lot.id && n.module === "lots" && now - n.createdAt < 4 * 3600_000)

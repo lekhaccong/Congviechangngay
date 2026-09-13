@@ -22,7 +22,10 @@ function TasksPage() {
   const shiftId = useAppStore((s) => s.selectedShiftId);
   const role = useAppStore((s) => s.role);
   const tasks = useRows(
-    () => getDb().tasks.filter((t) => t.date === date && (!shiftId || t.shiftId === shiftId)).toArray(),
+    async () => {
+      const rows = await getDb().tasks.where("date").equals(date).toArray();
+      return shiftId ? rows.filter((t) => t.shiftId === shiftId) : rows;
+    },
     [date, shiftId],
   );
   const blocks = useRows(() => getDb().workBlocks.orderBy("order").toArray());

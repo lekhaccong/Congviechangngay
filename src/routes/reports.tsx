@@ -16,20 +16,19 @@ function ReportsPage() {
   const from = range === "day" ? date : range === "week" ? startOfWeek(date) : startOfMonth(date);
   const to = date;
 
-  const tasks = useRows(() => getDb().tasks.toArray());
+  const tasks = useRows(() => getDb().tasks.where("date").between(from, to, true, true).toArray(), [from, to]);
   const dataItems = useRows(() => getDb().dataItems.toArray());
-  const lots = useRows(() => getDb().lots.toArray());
-  const goods = useRows(() => getDb().goodsItems.toArray());
-  const ots = useRows(() => getDb().overtimes.toArray());
-  const amhs = useRows(() => getDb().amhs.toArray());
+  const lots = useRows(() => getDb().lots.where("date").between(from, to, true, true).toArray(), [from, to]);
+  const goods = useRows(() => getDb().goodsItems.where("exportDate").between(from, to, true, true).toArray(), [from, to]);
+  const ots = useRows(() => getDb().overtimes.where("date").between(from, to, true, true).toArray(), [from, to]);
+  const amhs = useRows(() => getDb().amhs.where("date").between(from, to, true, true).toArray(), [from, to]);
   const people = useRows(() => getDb().employees.toArray());
   const abs = useRows(() => getDb().abnormalities.toArray());
 
-  const inRange = (d: string) => d >= from && d <= to;
-  const t = tasks.filter((x) => inRange(x.date));
-  const o = ots.filter((x) => inRange(x.date));
-  const l = lots.filter((x) => inRange(x.date));
-  const g = goods.filter((x) => inRange(x.exportDate));
+  const t = tasks;
+  const o = ots;
+  const l = lots;
+  const g = goods;
 
   const chart = useMemo(() => {
     const days: { name: string; xong: number; dang: number }[] = [];

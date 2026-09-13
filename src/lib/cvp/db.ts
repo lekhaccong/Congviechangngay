@@ -231,6 +231,14 @@ export class CvpDB extends Dexie {
       dataItems: "id, productCode, invoice, lot, status", goodsItems: "id, invoice, productCode, lot, status, exportDate", lots: "id, lotCode, invoice, productCode, status, date", lotClosures: "id, lotId, closedAt", threeS: "id, date, shiftId", abnormalities: "id, status, detectedAt, linkedModule, linkedId", notifications: "id, dueAt, read", settings: "key", handovers: "id, date, shiftId",
       syncQueue: "id, entityType, entityId, createdAt, nextRetryAt, [entityType+entityId]", syncState: "key", syncConflicts: "id, entityType, entityId, createdAt, resolvedAt",
     });
+
+    // v10: chỉ thêm index taskId trên abnormalities.
+    // Dexie giữ nguyên schema các bảng không liệt kê — tránh rebuild index toàn DB.
+    // Không .upgrade() ghi dữ liệu: taskId đã có trên object local; null/undefined vẫn index được.
+    // Chạy một lần khi mở app; đã ở v10 thì bỏ qua. An toàn lặp lại, không xóa bản ghi.
+    this.version(10).stores({
+      abnormalities: "id, status, detectedAt, linkedModule, linkedId, taskId",
+    });
   }
 }
 

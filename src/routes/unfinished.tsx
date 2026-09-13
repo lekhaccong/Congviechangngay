@@ -10,24 +10,45 @@ export const Route = createFileRoute("/unfinished")({ component: UnfinishedPage 
 
 function UnfinishedPage() {
   const date = useAppStore((s) => s.selectedDate);
-  const dataMissing = useRows(() =>
-    getDb().dataItems.filter((d) => d.status === "MISSING" || d.status === "NEW" || d.status === "PROCESSING").toArray(),
-  );
-  const goodsOpen = useRows(() =>
-    getDb().goodsItems.filter((g) => g.status !== "COMPLETED" && g.status !== "ENOUGH").toArray(),
-  );
-  const lotsOpen = useRows(() => getDb().lots.filter((l) => l.status !== "CLOSED").toArray());
+  const dataMissing = useRows(async () => {
+    const parts = await Promise.all(
+      (["MISSING", "NEW", "PROCESSING"] as const).map((status) => getDb().dataItems.where("status").equals(status).toArray()),
+    );
+    return parts.flat();
+  });
+  const goodsOpen = useRows(async () => {
+    const parts = await Promise.all(
+      (["WAITING", "PREPARING", "MISSING", "PROCESSING"] as const).map((status) => getDb().goodsItems.where("status").equals(status).toArray()),
+    );
+    return parts.flat();
+  });
+  const lotsOpen = useRows(async () => {
+    const parts = await Promise.all(
+      (["OPEN", "PROCESSING", "ENOUGH"] as const).map((status) => getDb().lots.where("status").equals(status).toArray()),
+    );
+    return parts.flat();
+  });
   const tasks = useRows(
-    () => getDb().tasks.filter((t) => t.date === date && t.status !== "COMPLETED").toArray(),
+    async () => {
+      const rows = await getDb().tasks.where("date").equals(date).toArray();
+      return rows.filter((t) => t.status !== "COMPLETED");
+    },
     [date],
   );
   const threeS = useRows(
-    () => getDb().threeS.filter((t) => t.date === date && !t.completedAt).toArray(),
+    async () => {
+      const rows = await getDb().threeS.where("date").equals(date).toArray();
+      return rows.filter((t) => !t.completedAt);
+    },
     [date],
   );
-  const abs = useRows(() =>
-    getDb().abnormalities.filter((a) => a.status === "NEW" || a.status === "PROCESSING").toArray(),
-  );
+  const abs = useRows(async () => {
+    const [a, b] = await Promise.all([
+      getDb().abnormalities.where("status").equals("NEW").toArray(),
+      getDb().abnormalities.where("status").equals("PROCESSING").toArray(),
+    ]);
+    return a.concat(b);
+  });
   const total = dataMissing.length + goodsOpen.length + lotsOpen.length + tasks.length + threeS.length + abs.length;
 
   return (

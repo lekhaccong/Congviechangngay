@@ -26,21 +26,27 @@ function TaskDetail() {
   const people = useRows(() => getDb().employees.toArray());
   const blocks = useRows(() => getDb().workBlocks.toArray());
   const logs = useRows(
-    () => getDb().auditLogs.filter((l) => l.recordId === id).reverse().sortBy("timestamp"),
+    () => getDb().auditLogs.where("recordId").equals(id).reverse().sortBy("timestamp"),
     [id],
   );
   const checklist = useRows(
-    () => getDb().checklists.filter((c) => c.blockId === (task?.blockId ?? "")).toArray(),
+    () => getDb().checklists.where("blockId").equals(task?.blockId ?? "").toArray(),
     [task?.blockId],
   );
   const items = useRows(async () => {
     const ids = checklist.map((c) => c.id);
     if (!ids.length) return [];
-    return getDb().checklistItems.filter((i) => ids.includes(i.checklistId) && (i.taskId === null || i.taskId === id)).toArray();
+    const rows = (await Promise.all(ids.map((checklistId) => getDb().checklistItems.where("checklistId").equals(checklistId).toArray()))).flat();
+    return rows.filter((i) => i.taskId === null || i.taskId === id);
   }, [checklist, id]);
   const [note, setNote] = useState<string | null>(null);
   const [abnormalOpen, setAbnormalOpen] = useState(false);
-  const abnormalities = useRows(() => getDb().abnormalities.filter((row) => row.taskId === id || (row.linkedModule === "tasks" && row.linkedId === id)).toArray(), [id]);
+  const abnormalities = useRows(async () => {
+    const byLink = await getDb().abnormalities.where("linkedId").equals(id).toArray();
+    const byTask = await getDb().abnormalities.where("taskId").equals(id).toArray();
+    const map = new Map(byLink.concat(byTask).map((row) => [row.id, row]));
+    return [...map.values()].filter((row) => row.taskId === id || (row.linkedModule === "tasks" && row.linkedId === id));
+  }, [id]);
 
   if (!task) return <p className="text-muted">Không tìm thấy công việc.</p>;
   const who = people.find((p) => p.id === task.assigneeId);

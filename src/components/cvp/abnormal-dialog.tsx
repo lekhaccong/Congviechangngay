@@ -25,7 +25,10 @@ export function AbnormalDialog({
   const shiftId = useAppStore((s) => s.selectedShiftId);
   const people = useRows(() => getDb().employees.toArray());
   const blocks = useRows(() => getDb().workBlocks.orderBy("order").toArray());
-  const tasks = useRows(() => getDb().tasks.filter((row) => row.date === date && (!shiftId || row.shiftId === shiftId)).toArray(), [date, shiftId]);
+  const tasks = useRows(async () => {
+    const rows = await getDb().tasks.where("date").equals(date).toArray();
+    return shiftId ? rows.filter((row) => row.shiftId === shiftId) : rows;
+  }, [date, shiftId]);
   const [type, setType] = useState<string>(ABNORMAL_TYPES[0]);
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState<AbnormalSeverity>("MEDIUM");

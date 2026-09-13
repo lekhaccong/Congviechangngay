@@ -18,14 +18,23 @@ function HandoverPage() {
   const shiftId = useAppStore((s) => s.selectedShiftId);
   const userName = useAppStore((s) => s.currentUserName);
   const shifts = useRows(() => getDb().shifts.toArray());
-  const tasks = useRows(() => getDb().tasks.filter((t) => t.date === date).toArray(), [date]);
+  const tasks = useRows(() => getDb().tasks.where("date").equals(date).toArray(), [date]);
   const dataItems = useRows(() => getDb().dataItems.toArray());
-  const goods = useRows(() => getDb().goodsItems.filter((g) => g.exportDate === date).toArray(), [date]);
-  const lots = useRows(() => getDb().lots.filter((l) => l.date === date).toArray(), [date]);
-  const abs = useRows(() => getDb().abnormalities.filter((a) => a.status === "NEW" || a.status === "PROCESSING").toArray());
-  const ots = useRows(() => getDb().overtimes.filter((o) => o.date === date).toArray(), [date]);
+  const goods = useRows(() => getDb().goodsItems.where("exportDate").equals(date).toArray(), [date]);
+  const lots = useRows(() => getDb().lots.where("date").equals(date).toArray(), [date]);
+  const abs = useRows(async () => {
+    const [a, b] = await Promise.all([
+      getDb().abnormalities.where("status").equals("NEW").toArray(),
+      getDb().abnormalities.where("status").equals("PROCESSING").toArray(),
+    ]);
+    return a.concat(b);
+  });
+  const ots = useRows(() => getDb().overtimes.where("date").equals(date).toArray(), [date]);
   const saved = useRows(
-    () => getDb().handovers.filter((h) => h.date === date && (!shiftId || h.shiftId === shiftId)).toArray(),
+    async () => {
+      const rows = await getDb().handovers.where("date").equals(date).toArray();
+      return shiftId ? rows.filter((h) => h.shiftId === shiftId) : rows;
+    },
     [date, shiftId],
   );
   const [note, setNote] = useState("");

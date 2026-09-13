@@ -13,7 +13,7 @@ import { Toaster } from "sonner";
 import { cn } from "@/lib/utils";
 import { initApp } from "@/lib/cvp/init";
 import { useAppStore } from "@/lib/cvp/store";
-import { useRows } from "@/lib/cvp/hooks";
+import { useRows, useRow, useCount } from "@/lib/cvp/hooks";
 import { getDb } from "@/lib/cvp/db";
 import { formatDateVi } from "@/lib/cvp/time";
 import { applyDate, applyShift } from "@/lib/cvp/init";
@@ -21,7 +21,6 @@ import { AbnormalDialog } from "@/components/cvp/abnormal-dialog";
 import { NativeSelect } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { startSyncEngine } from "@/lib/sync/engine";
-import { useRow } from "@/lib/cvp/hooks";
 
 const NAV = [
   { to: "/", label: "Ca", icon: LayoutDashboard },
@@ -44,7 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const shift = shifts.find((s) => s.id === shiftId);
   const syncStatus = useRow(() => getDb().syncState.get("status"));
   const syncProgress = useRow(() => getDb().syncState.get("progress"));
-  const pendingSync = useRows(() => getDb().syncQueue.toArray()).length;
+  const pendingSync = useCount(() => getDb().syncQueue.count());
 
   useEffect(() => {
     void initApp();

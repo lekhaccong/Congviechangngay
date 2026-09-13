@@ -12,13 +12,25 @@ import { SEVERITY_LABEL, type AbnormalStatus } from "@/lib/cvp/types";
 export const Route = createFileRoute("/abnormal/")({ component: AbnormalPage });
 
 function AbnormalPage() {
-  const rows = useRows(() => getDb().abnormalities.reverse().sortBy("detectedAt"));
-  const people = useRows(() => getDb().employees.toArray());
-  const blocks = useRows(() => getDb().workBlocks.toArray());
-  const tasks = useRows(() => getDb().tasks.toArray());
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | AbnormalStatus>("all");
-  const shown = rows.filter((r) => filter === "all" || r.status === filter);
+  const rows = useRows(
+    () =>
+      filter === "all"
+        ? getDb().abnormalities.reverse().sortBy("detectedAt")
+        : getDb().abnormalities.where("status").equals(filter).reverse().sortBy("detectedAt"),
+    [filter],
+  );
+  const people = useRows(() => getDb().employees.toArray());
+  const blocks = useRows(() => getDb().workBlocks.orderBy("order").toArray());
+  // Chỉ cần map id→tên cho dòng đang hiện; tránh liveQuery toàn bộ tasks lịch sử.
+  const taskIds = [...new Set(rows.map((r) => r.taskId).filter(Boolean))] as string[];
+  const tasks = useRows(async () => {
+    if (!taskIds.length) return [];
+    const found = await getDb().tasks.bulkGet(taskIds);
+    return found.filter((row) => row != null);
+  }, [taskIds.join("|")]);
+  const shown = rows;
 
   return (
     <div>
