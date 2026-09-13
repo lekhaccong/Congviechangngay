@@ -33,7 +33,7 @@ function OtPage() {
   const schedules = useRows(() => getDb().workSchedules.where("date").equals(date).toArray(), [date]);
   const adjustments = useRows(() => getDb().scheduleAdjustments.where("date").equals(date).toArray(), [date]);
   const attendance = useRows(() => getDb().attendance.where("date").equals(date).toArray(), [date]);
-  const [tab, setTab] = useState<"ot" | "amh">("ot");
+  const [tab, setTab] = useState<"ot" | "amh">("amh");
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const shifts = useRows(() => getDb().shifts.orderBy("order").toArray());
@@ -80,6 +80,7 @@ function OtPage() {
         <Stat label="AMH ngày/ca" value={`${formatHours(totalAmhMinutes)}h`} />
         <Stat label="Nhân sự" value={amhRows.length} />
       </div>
+      <p className="mb-3 text-xs text-muted">OT qua 00:00 vẫn tính đúng. Ca nghỉ SM/SM1/S/SA/E/P/CK/RO/TS/O có giờ ca AMH bằng 0; chỉ cộng OT đã xác nhận và điều chỉnh đã duyệt.</p>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <Button variant={tab === "ot" ? "default" : "secondary"} onClick={() => setTab("ot")}>
           OT

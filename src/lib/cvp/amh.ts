@@ -10,7 +10,7 @@ function clockMinutes(value: string): number {
 
 export function plannedMinutesForShift(code: BusinessShiftCode): number {
   const rule = BUSINESS_SHIFT_RULES[code];
-  if (!rule.working) return 0;
+  if (!rule.working || rule.dayOff) return 0;
   const start = clockMinutes(rule.startTime);
   const end = clockMinutes(rule.endTime);
   return end >= start ? end - start : 24 * 60 - start + end;
@@ -69,7 +69,7 @@ export function calculateEmployeeAmh(input: {
     regularMinutes,
     overtimeMinutes,
     adjustmentMinutes,
-    totalMinutes: regularMinutes + overtimeMinutes + adjustmentMinutes,
+    totalMinutes: Math.max(0, regularMinutes + overtimeMinutes + adjustmentMinutes),
     state,
   };
 }

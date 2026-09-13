@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, NativeSelect, Textarea } from "@/components/ui/input";
 import type { EmployeeStatus, Role } from "@/lib/cvp/types";
 
+const SHIFT_CODE_BY_ORDER: Record<number, string> = { 1: "M", 2: "M1", 3: "X5", 4: "X", 5: "X3", 6: "A", 7: "D" };
+
 export function PersonForm({
   open,
   onClose,
@@ -15,7 +17,7 @@ export function PersonForm({
   open: boolean;
   onClose: () => void;
   groups: { id: string; name: string }[];
-  shifts: { id: string; name: string }[];
+  shifts: { id: string; name: string; startTime?: string; endTime?: string; order?: number }[];
   initial?: {
     code: string;
     name: string;
@@ -24,6 +26,7 @@ export function PersonForm({
     shiftId: string;
     status: EmployeeStatus;
     role: Role;
+    position?: string;
     phone?: string;
     note: string;
   };
@@ -35,6 +38,7 @@ export function PersonForm({
     shiftId: string;
     status: EmployeeStatus;
     role: Role;
+    position: string;
     phone: string;
     note: string;
   }) => Promise<void>;
@@ -42,6 +46,7 @@ export function PersonForm({
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [serialNumber, setSerial] = useState("");
+  const [position, setPosition] = useState("");
   const [groupId, setGroupId] = useState("");
   const [shiftId, setShiftId] = useState("");
   const [status, setStatus] = useState<EmployeeStatus>("ACTIVE");
@@ -54,6 +59,7 @@ export function PersonForm({
     setCode(initial?.code ?? "");
     setName(initial?.name ?? "");
     setSerial(initial?.serialNumber ?? "");
+    setPosition(initial?.position ?? "");
     setGroupId(initial?.groupId ?? groups[0]?.id ?? "");
     setShiftId(initial?.shiftId ?? shifts[0]?.id ?? "");
     setStatus(initial?.status ?? "ACTIVE");
@@ -68,17 +74,20 @@ export function PersonForm({
         className="space-y-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          await onSave({ code, name, serialNumber, groupId, shiftId, status, role, phone, note });
+          await onSave({ code: code || serialNumber, name, serialNumber, position, groupId, shiftId, status, role, phone, note });
         }}
       >
-        <Field label="Mã nhân viên">
-          <Input value={code} onChange={(e) => setCode(e.target.value)} required />
+        <Field label="SBD">
+          <Input value={serialNumber} onChange={(e) => setSerial(e.target.value)} required />
         </Field>
         <Field label="Họ tên">
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
-        <Field label="SBD / STT">
-          <Input value={serialNumber} onChange={(e) => setSerial(e.target.value)} />
+        <Field label="Mã nhân viên">
+          <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Để trống = dùng SBD" />
+        </Field>
+        <Field label="Vị trí công việc">
+          <Input value={position} onChange={(e) => setPosition(e.target.value)} placeholder="Leader, Lái xe, Đóng Cont…" />
         </Field>
         <Field label="Nhóm">
           <NativeSelect value={groupId} onChange={(e) => setGroupId(e.target.value)}>
@@ -94,7 +103,7 @@ export function PersonForm({
           <NativeSelect value={shiftId} onChange={(e) => setShiftId(e.target.value)}>
             {shifts.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name}
+                {s.order ? `${SHIFT_CODE_BY_ORDER[s.order] ?? s.name} ${s.startTime ?? ""}–${s.endTime ?? ""}` : s.name}
               </option>
             ))}
           </NativeSelect>

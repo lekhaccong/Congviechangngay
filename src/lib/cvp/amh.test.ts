@@ -39,3 +39,29 @@ test("nghỉ không có giờ ca nhưng vẫn giữ OT đã xác nhận", () => 
   assert.equal(result.totalMinutes, 60);
   assert.equal(result.state, "ABSENT");
 });
+
+test("ca ngày nghỉ không cộng giờ ca vào AMH", () => {
+  for (const code of ["SM", "SM1", "S", "SA", "E"] as const) {
+    assert.equal(plannedMinutesForShift(code), 0);
+  }
+  const result = calculateEmployeeAmh({
+    date: "2026-09-13",
+    shiftCode: "SM1",
+    attendance: { status: "PRESENT", confirmedAt: 1 } as Attendance,
+    overtimes: [{ totalMinutes: 120, attendanceConfirmedAt: 1 } as Overtime],
+    adjustments: [],
+  });
+  assert.equal(result.regularMinutes, 0);
+  assert.equal(result.totalMinutes, 120);
+});
+
+test("điều chỉnh âm không làm AMH nhỏ hơn 0", () => {
+  const result = calculateEmployeeAmh({
+    date: "2026-09-13",
+    shiftCode: "P",
+    attendance: { status: "ABSENT" } as Attendance,
+    overtimes: [],
+    adjustments: [{ hours: -2, status: "APPROVED" } as Amh],
+  });
+  assert.equal(result.totalMinutes, 0);
+});

@@ -56,6 +56,7 @@ function PersonDetail() {
       <section className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]">
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <Item k="Nhóm" v={g?.name ?? "—"} />
+          <Item k="Vị trí" v={person.position || "—"} />
           <Item k="SĐT" v={person.phone || "—"} />
           <Item k="Ca mặc định" v={s ? `${s.name} ${s.startTime}–${s.endTime}` : "—"} />
           <Item k="Quyền" v={ROLE_LABEL[person.role]} />

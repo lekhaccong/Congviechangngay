@@ -102,6 +102,7 @@ export interface Employee {
   shiftId: string;
   status: EmployeeStatus;
   role: Role;
+  position?: string;
   phone?: string;
   note: string;
   sample?: boolean;

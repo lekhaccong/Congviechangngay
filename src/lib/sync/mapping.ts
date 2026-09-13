@@ -6,7 +6,7 @@ export async function toCloud(entityType: SyncEntityType, value: unknown): Promi
     const row = value as Employee; const group = await getDb().groups.get(row.groupId);
     const legacyRole = row.role as string;
     const localRole = legacyRole === "LEADER" ? "MANAGER" : legacyRole === "USER" ? "EMPLOYEE" : ["ADMIN", "MANAGER", "EMPLOYEE", "VIEWER"].includes(legacyRole) ? legacyRole : "EMPLOYEE";
-    return { id: row.id, sbd: row.code, name: row.name, group_name: group?.name ?? "", phone: row.phone ?? "", status: row.status, note: row.note, local_role: localRole, local_shift_id: row.shiftId, client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
+    return { id: row.id, sbd: row.code, name: row.name, position: row.position ?? "", group_name: group?.name ?? "", phone: row.phone ?? "", status: row.status, note: row.note, local_role: localRole, local_shift_id: row.shiftId, client_updated_at: new Date(row.updatedAt).toISOString(), deleted_at: null };
   }
   if (entityType === "work_schedules") {
     const row = value as WorkSchedule;
@@ -105,7 +105,7 @@ export async function applyCloudRow(entityType: SyncEntityType, row: Record<stri
   if (entityType === "employees") {
     let group = await db.groups.filter((item) => item.name.trim().toLowerCase() === String(row.group_name ?? "").trim().toLowerCase()).first();
     if (!group) { group = { id: `cloud-group-${crypto.randomUUID()}`, name: row.group_name || "Chưa phân nhóm", order: (await db.groups.count()) + 1 }; await db.groups.add(group); }
-    await db.employees.put({ id: row.id, code: row.sbd, serialNumber: row.sbd, name: row.name, groupId: group.id, shiftId: row.local_shift_id ?? "shift-2", status: row.status, role: row.local_role ?? "EMPLOYEE", phone: row.phone ?? "", note: row.note ?? "", createdAt: millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
+    await db.employees.put({ id: row.id, code: row.sbd, serialNumber: row.sbd, name: row.name, position: row.position ?? "", groupId: group.id, shiftId: row.local_shift_id ?? "shift-2", status: row.status, role: row.local_role ?? "EMPLOYEE", phone: row.phone ?? "", note: row.note ?? "", createdAt: millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
   } else if (entityType === "work_schedules") {
     await db.workSchedules.put({ id: row.id, employeeId: row.employee_id, date: row.work_date, shiftCode: row.shift_code, source: row.source, createdAt: millis(row.created_at) ?? Date.now(), updatedAt: millis(row.client_updated_at) ?? millis(row.updated_at) ?? Date.now() });
   } else if (entityType === "schedule_adjustments") {

@@ -5,7 +5,7 @@ import { PageHeader, EmptyState } from "@/components/cvp/page-header";
 import { EmployeeBadge } from "@/components/cvp/status-badge";
 import { FilterChip } from "@/components/cvp/filter-chip";
 import { PersonForm } from "@/components/cvp/person-form";
-import { ExcelImportDialog } from "@/components/cvp/excel-import-dialog";
+import { ExcelImportButtons } from "@/components/cvp/personnel-excel-import";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -31,7 +31,6 @@ function PeoplePage() {
   const [groupFilter, setGroupFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState("all");
   const [open, setOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupOpen, setGroupOpen] = useState(false);
@@ -54,12 +53,12 @@ function PeoplePage() {
           can(role, "manage_people") ? (
             <div className="flex gap-2">
               <Button size="sm" variant="ghost" onClick={() => { setSelecting((value) => !value); setSelected(new Set()); }}>{selecting ? "Hủy" : "Chọn"}</Button>
-              <Button size="sm" variant="secondary" onClick={() => setImportOpen(true)}>Nhập Excel</Button>
               <Button size="sm" onClick={() => setOpen(true)}>Thêm</Button>
             </div>
           ) : null
         }
       />
+      {can(role, "manage_people") ? <ExcelImportButtons layout="card" /> : null}
       <div className="mb-3 flex gap-2 overflow-x-auto">
         <FilterChip active={groupFilter === "all"} onClick={() => setGroupFilter("all")}>
           Tất cả
@@ -129,7 +128,7 @@ function PeoplePage() {
                   <div className="min-w-0">
                     <p className="font-medium">{p.name}</p>
                     <p className="font-mono text-xs text-muted">
-                      {p.code} · {g?.name} · {actualShiftCode ? `${schedule?.shiftCode ?? actualShiftCode}${actualShiftCode !== schedule?.shiftCode ? ` → ${actualShiftCode}` : ""}` : s?.name} · {ROLE_LABEL[p.role]}
+                      {p.code}{p.position ? ` · ${p.position}` : ""} · {g?.name} · {actualShiftCode ? `${schedule?.shiftCode ?? actualShiftCode}${actualShiftCode !== schedule?.shiftCode ? ` → ${actualShiftCode}` : ""}` : s?.name} · {ROLE_LABEL[p.role]}
                     </p>
                   </div>
                   <EmployeeBadge status={p.status} />
@@ -151,8 +150,6 @@ function PeoplePage() {
           setOpen(false);
         }}
       />
-      <ExcelImportDialog open={importOpen} onClose={() => setImportOpen(false)} kind="people" date="" shiftId={shifts[0]?.id ?? ""} shifts={shifts} />
-
       <Dialog open={groupOpen} onClose={() => setGroupOpen(false)} title="Nhóm/Vị trí">
         <ul className="mb-4 space-y-2">
           {groups.map((g) => (

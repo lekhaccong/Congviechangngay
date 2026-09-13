@@ -335,8 +335,8 @@ export async function importPeople(rows: PersonImportRow[], groupId: string, shi
       resolvedGroupId = found.id;
     }
     const old = byCode.get(row.code); const note = [row.position && `Vị trí: ${row.position}`].filter(Boolean).join(" · ");
-    if (old) { await updateEmployee(old.id, { name: row.name, groupId: resolvedGroupId, shiftId, serialNumber: row.code, phone: row.phone, note }); updated++; }
-    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, groupId: resolvedGroupId, shiftId, status: "ACTIVE", role: "EMPLOYEE", phone: row.phone, note }); byCode.set(row.code, createdRow); created++; }
+    if (old) { await updateEmployee(old.id, { name: row.name, position: row.position, groupId: resolvedGroupId, shiftId, serialNumber: row.code, phone: row.phone, note }); updated++; }
+    else { const createdRow = await createEmployee({ code: row.code, name: row.name, serialNumber: row.code, position: row.position, groupId: resolvedGroupId, shiftId, status: "ACTIVE", role: "EMPLOYEE", phone: row.phone, note }); byCode.set(row.code, createdRow); created++; }
   }
   // Sau khi mọi nhân sự đã được chuyển sang nhóm từ cột D, xóa các nhóm rỗng
   // cũ như "Nhóm 1", "Nhóm 2" hoặc "2" để màn Nhóm phản ánh đúng file Excel.
